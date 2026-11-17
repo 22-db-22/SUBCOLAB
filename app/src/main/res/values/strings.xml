@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">OpenScribe</string>
+    <string name="channel_progress_name">Download &amp; Translation Progress</string>
+    <string name="channel_ready_name">Ready to Watch Alerts</string>
+</resources>

@@ -1,0 +1,8 @@
+{
+  "name": "Remix openscribe_v3",
+  "description": "Imported from GitHub: 22-db-22/openscribe_v2",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

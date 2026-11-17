@@ -1,0 +1,5 @@
+-keep class dev.jdtech.mpv.** { *; }
+-keep class com.yausername.youtubedl_android.** { *; }
+-keep class com.yausername.ffmpeg.** { *; }
+-keep class com.yausername.aria2c.** { *; }
+-keepattributes Signature,InnerClasses,EnclosingMethod
