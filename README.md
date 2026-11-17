@@ -1,59 +1,66 @@
+<div align="center">
+
 # SUBCOLAB
 
-**SUBCOLAB v1.0** is a free, open-source standalone Android app (Kotlin + Jetpack Compose + Material 3) that translates foreign-language videos into crisp yellow English subtitles on your own free **Google Colab T4 GPU** and plays or downloads them inside **one single APK**.
+**Real-time English subtitles for non-English videos on Android**  
+Powered by Whisper `large-v3` on your own free Google Colab T4 GPU + built-in `libmpv` player
 
-No Termux. No external `mpv-android`. No `All files access` permission. No developer backend servers.
+[![Download APK](https://img.shields.io/badge/Download-SUBCOLAB%20v1.0-E11D48?style=for-the-badge&logo=android&logoColor=white)](https://github.com/22-db-22/SUBCOLAB/releases)
+[![Android](https://img.shields.io/badge/Android-8.0%2B%20(arm64)-2563EB?style=for-the-badge)](https://github.com/22-db-22/SUBCOLAB/releases)
+[![Whisper](https://img.shields.io/badge/Whisper-large--v3%20(99%20langs)-E11D48?style=for-the-badge)](#features)
+[![License](https://img.shields.io/badge/License-GPL--3.0-2563EB?style=for-the-badge)](LICENSE)
 
----
-
-## How SUBCOLAB Enhances OpenScribe
-
-**SUBCOLAB** is based on and inspired by the [OpenScribe](https://github.com/faisal-saddique/openscribe) Colab workflow by **Faisal Saddique** (MIT License), expanding it into a self-contained native Android experience:
-
-- **Smooth Live Streaming (`Watch Now`) with Embedded `libmpv`**: Streams `<=720p` video smoothly through a local OkHttp loopback proxy (`Range` + HLS M3U8 + split DASH audio) on a cinema-black player with live-reloading yellow English subtitles, brightness/volume swipe gestures, immersive landscape fullscreen, and Picture-in-Picture (PiP).
-- **Adaptive Audio-Only Chunking & Phone Wi-Fi Audio Relay**: Slices only lightweight audio chunks (`15s`–`60s` 16 kHz mono AAC) and streams them to your Colab T4 GPU so live video playback is never slowed down—even when YouTube blocks Colab datacenter IPs.
-- **Direct Share Integration (`YouTube → Share → SUBCOLAB`)**: Pick your source language (~99 Whisper languages) and tap **Watch Now** (smooth live stream that auto-opens once initial subtitles arrive) or **Download** (saves a full `<=720p` MP4 + `.srt`/`.ass`/`.vtt` quietly in the background).
-- **Seek-Ahead & Warm T4 Session Reuse**: Jump ahead to any untranslated timestamp to prioritize that section on Colab T4, and keep the T4 runtime warm between videos for faster startup.
-- **System / Light / Dark Theme**: Choose your preferred appearance in Settings while keeping the video player cinema-black with `#FFFF00` subtitles.
+</div>
 
 ---
 
-## Quick Install (From GitHub Releases)
-
-1. Go to **[Releases](https://github.com/22-db-22/SUBCOLAB/releases)** and download **`SUBCOLAB-v1.0-arm64.apk`** (for Android 8.0+ 64-bit phones).
-2. Tap the downloaded `.apk` in your phone's **Files** app and allow **"Install from this source"** when prompted.
-3. Open **SUBCOLAB** and allow **Notifications** (keeps background translation running smoothly).
-   - *(Recommended)* Allow **"Display over other apps"** when prompted so **Watch Now** can pop open automatically over YouTube as soon as initial subtitles arrive.
-4. Tap the **Settings** gear icon (top right) → **Sign in with Google (Colab)** to complete the one-time OAuth2 sign-in.
-5. Open YouTube (or any supported video app), tap **Share → SUBCOLAB**, pick the spoken language (or leave `Auto`), and tap **Watch Now** or **Download**!
-
----
-
-## Privacy & Google Colab Note
-
-- **Zero Developer Servers**: SUBCOLAB communicates directly between your phone and your own Google Colab runtime.
-- **Encrypted Local Tokens**: Your Google OAuth tokens stay strictly on your device inside Android's `EncryptedSharedPreferences`.
-- **Your Own Free Colab T4 Tier**: Whisper `large-v3` runs on your personal Google Colab GPU quota. Remember to tap **Stop T4 GPU Runtime** when you are done watching.
-- **Scoped Storage**: Downloads are saved cleanly via `MediaStore.Downloads` without requesting `MANAGE_EXTERNAL_STORAGE`.
+## Features
+- **Zero browser tabs or Termux:** Native Kotlin + Jetpack Compose Android app.
+- **One-Tap Share from YouTube:** Tap **Share → SUBCOLAB** in YouTube or any browser, or paste a link directly.
+- **Live Streaming Playback:** Built-in `libmpv` player opens automatically once 4 English cues buffer and reloads subtitles live in-app.
+- **All ~99 Languages:** Defaults to `auto` with quick presets for Chinese (`zh`), Korean (`ko`), Japanese (`ja`), or any Whisper language.
+- **Seek-Ahead Jump:** Scrub anywhere in the player—playback pauses briefly while Colab jumps translation to your timestamp.
+- **Background Saving:** Save `<=720p` `.mp4` + `.srt` / `.ass` / `.vtt` directly to `Downloads/SUBCOLAB/` (even mid-watch).
+- **Phone Wi-Fi Audio Relay:** Automatically bypasses YouTube IP blocks on Colab.
+- **Customizable UI:** Red & Blue branding, System / Light / Dark themes, and an in-app Debug Logs viewer.
 
 ---
 
-## Optional: Building from Source
+## How SUBCOLAB Differs From Original OpenScribe
+This project builds on the Colab Whisper workflow from **[faisal-saddique/openscribe](https://github.com/faisal-saddique/openscribe)** (MIT License) and turns it into a standalone live Android app:
 
-This repository includes a ready-to-run GitHub Actions workflow (`.github/workflows/build-apk.yml`), or you can build locally with JDK 17 + Android SDK:
-
-```bash
-git clone https://github.com/22-db-22/SUBCOLAB.git
-cd SUBCOLAB
-gradle testDebugUnitTest
-gradle assembleDebug
-```
+| Feature | `faisal-saddique/openscribe` (Original) | SUBCOLAB (Android) |
+| :--- | :--- | :--- |
+| **Interface** | Google Colab notebook in a browser (10 manual cells) | Native Android app (Kotlin + Jetpack Compose) |
+| **Input** | Manual URL paste in notebook cell | **YouTube → Share → SUBCOLAB** or paste link |
+| **Colab GPU** | Manual browser tab | Headless OAuth2 + Runtime/WebSocket API |
+| **Playback** | Wait for full video to finish, download `.zip` | Live streaming into built-in `libmpv` player at 4 cues |
+| **Seeking** | Not supported | **Seek-Ahead Jump** directly on Colab |
+| **Blocks & Saving** | Colab only | Built-in `youtubedl-android` audio relay & MP4 saving |
 
 ---
 
-## License & Open Source Credits
+## Download & Use
+1. Download **`SUBCOLAB-v1.0-arm64.apk`** from **[Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
+2. Tap the `.apk` to install *(allow "Install unknown apps" if prompted)*.
+3. Open **SUBCOLAB**, allow **Notifications**, and go to **Settings → Sign in with Google** *(one-time Colab authorization)*.
+4. Share any video from **YouTube → SUBCOLAB**, pick your language and mode, and watch!
 
-- **License**: Distributed under the **GNU General Public License v3.0** (`LICENSE`), required for public distribution with `youtubedl-android` (`yt-dlp` + `FFmpeg`) and `libmpv`.
-- **Upstream Attribution**: Based on & inspired by [OpenScribe](https://github.com/faisal-saddique/openscribe) by **Faisal Saddique** (MIT License — preserved in `NOTICE`).
-- **Powered By**: OpenAI Whisper, SYSTRAN `faster-whisper`, `google-colab-cli` protocol, `libmpv`, and `youtubedl-android` (`yt-dlp` + `FFmpeg`).
-- **Created by**: `writtenwithharmony@gmail.com`
+> [!TIP]
+> Inside the player, **swipe left** vertically for brightness, **swipe right** for volume, **double-tap** left/right to seek ±10s, or tap the **Download** icon anytime to save the video + subtitles in the background.
+
+---
+
+## Privacy & Colab Limits
+> [!NOTE]
+> **No developer servers:** Your Google OAuth tokens stay encrypted locally on your device (`EncryptedSharedPreferences`) and connect directly to your own Google Colab session.
+
+- Runs on Google Colab's free T4 GPU tier, so Google's normal session limits and cooldowns apply.
+- If YouTube strictly requires login cookies for a video, import a Netscape `cookies.txt` file in **Settings**.
+
+---
+
+## Credits & Licenses
+- Distributed under **[GPL-3.0](LICENSE)** (required by bundled `libmpv` / `FFmpeg` / `youtubedl-android` components). See **[NOTICE](NOTICE)** for full attributions.
+- Original Colab Whisper workflow inspired by **[faisal-saddique/openscribe](https://github.com/faisal-saddique/openscribe)** (**MIT License**).
+- Powered by [OpenAI Whisper](https://github.com/openai/whisper), [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper), [google-colab-cli](https://github.com/googlecolab/google-colab-cli), [dev.jdtech.mpv/libmpv](https://github.com/jarnedemeulemeester/libmpv-android), [youtubedl-android](https://github.com/junkfood02/youtubedl-android), [yt-dlp](https://github.com/yt-dlp/yt-dlp), and [FFmpeg](https://ffmpeg.org/).
