@@ -34,6 +34,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.io.File
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.UUID
@@ -66,18 +67,27 @@ class ColabConnectionLostException(message: String, cause: Throwable? = null) :
 
 /**
  * Headless Google Colab T4 GPU Client in pure Kotlin following googlecolab/google-colab-cli.
- * Uses generous REST timeouts (60s connect / 180s read) and a dedicated WebSocket client with
- * readTimeout=0 and no pingInterval (relying on colab_worker.py's 20s @@OPENSCRIBE_HEARTBEAT@@)
- * so OkHttp never kills long-running ffmpeg/Whisper tasks with SocketTimeoutException.
+ * Uses HTTP/1.1 with generous REST timeouts (60s connect / 150s read / 150s write / 165s call)
+ * matching Python requests so free-tier T4 VM spin-up (45-120s) never times out prematurely,
+ * and a dedicated WebSocket client with readTimeout=0, callTimeout=0, and pingInterval=0
+ * (relying on colab_worker.py's 20s @@OPENSCRIBE_HEARTBEAT@@).
  */
 class ColabClient(
     private val authManager: ColabAuthManager,
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .retryOnConnectionFailure(true)
         .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(180, TimeUnit.SECONDS)
+        .readTimeout(150, TimeUnit.SECONDS)
+        .writeTimeout(150, TimeUnit.SECONDS)
+        .callTimeout(165, TimeUnit.SECONDS)
         .build(),
 ) {
+    private class TransientColabAssignException(
+        val statusCode: Int,
+        message: String,
+    ) : IOException(message)
+
     companion object {
         private const val TAG = "ColabClient"
         private const val COLAB_DOMAIN = "https://colab.research.google.com"
@@ -90,30 +100,33 @@ class ColabClient(
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
     }
 
-    // Fast control-plane client for /assignments and /api/kernels reachability checks (HTTP/1.1 avoids stalled HTTP/2 streams on mobile)
+    // Fast HTTP/1.1 control-plane client for /assignments and /api/kernels reachability checks
     private val controlHttpClient: OkHttpClient = httpClient.newBuilder()
         .protocols(listOf(Protocol.HTTP_1_1))
         .retryOnConnectionFailure(true)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Dedicated non-pooled HTTP/1.1 client for /tun/m/assign so GET->POST never reuses a stalled keep-alive socket
+    // Dedicated non-pooled HTTP/1.1 client for /tun/m/assign matching google-colab-cli timeouts (60s/150s/150s/165s)
     private val assignHttpClient: OkHttpClient = httpClient.newBuilder()
         .connectionPool(ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
         .protocols(listOf(Protocol.HTTP_1_1))
         .retryOnConnectionFailure(true)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(35, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(150, TimeUnit.SECONDS)
+        .writeTimeout(150, TimeUnit.SECONDS)
+        .callTimeout(165, TimeUnit.SECONDS)
         .build()
 
-    // Dedicated WebSocket client: readTimeout=0 and no pingInterval so Colab proxy never drops idle sockets
+    // Dedicated WebSocket client: readTimeout=0, callTimeout=0, and pingInterval=0 so active Whisper runs never time out
     private val wsHttpClient: OkHttpClient = httpClient.newBuilder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
         .pingInterval(0, TimeUnit.SECONDS)
         .build()
 
@@ -124,6 +137,7 @@ class ColabClient(
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(0, TimeUnit.SECONDS)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -181,16 +195,16 @@ class ColabClient(
         val accessToken = authManager.getValidAccessToken()
         val existingList = listAssignments(accessToken)
         val staleEndpoints = HashSet<String>()
-        val warmT4 = existingList.firstOrNull {
+        val orderedCandidates = existingList.sortedByDescending {
             it.accelerator.equals("T4", ignoreCase = true)
-        } ?: existingList.firstOrNull()
+        }
 
-        if (warmT4 != null) {
+        for (candidate in orderedCandidates) {
             val session = ColabRuntimeSession(
-                endpoint = warmT4.endpoint,
-                accelerator = warmT4.accelerator,
-                proxyUrl = warmT4.proxyUrl.trimEnd('/'),
-                proxyToken = warmT4.proxyToken,
+                endpoint = candidate.endpoint,
+                accelerator = candidate.accelerator,
+                proxyUrl = candidate.proxyUrl.trimEnd('/'),
+                proxyToken = candidate.proxyToken,
                 notebookHash = uuidToWebSafeBase64(UUID.randomUUID()),
                 isFreshlyAllocated = false,
             )
@@ -205,6 +219,7 @@ class ColabClient(
                 onStatus("Connected to existing Colab ${session.accelerator} runtime.")
                 return@withContext session
             } else {
+                AppLogger.i(TAG, "Unassigning unreachable Colab runtime ${session.endpoint}")
                 staleEndpoints.add(session.endpoint)
                 runCatching { unassign(session.endpoint) }
             }
@@ -212,11 +227,38 @@ class ColabClient(
 
         onStatus("Booting fresh Google Colab T4 GPU runtime...")
         AppLogger.i(TAG, "Allocating fresh Colab T4 GPU runtime")
-        var lastBootErr: Throwable? = null
-        for (bootAttempt in 0..2) {
+        val session = allocateFreshT4(accessToken, staleEndpoints, onStatus)
+        AppLogger.i(TAG, "T4 runtime assigned: ${session.endpoint} (fresh=${session.isFreshlyAllocated})")
+        if (session.isFreshlyAllocated) {
+            onStatus("T4 GPU allocated — waiting for Jupyter runtime...")
+            waitForRuntimeReady(session)
+        }
+        session.lastVerifiedAtMs = System.currentTimeMillis()
+        activeSession = session
+        return@withContext session
+    }
+
+    private suspend fun waitForRuntimeReady(session: ColabRuntimeSession) {
+        val deadlineMs = System.currentTimeMillis() + 10_000L
+        while (System.currentTimeMillis() < deadlineMs) {
+            if (isProxyReachable(session)) return
+            delay(350L)
+        }
+    }
+
+    private suspend fun allocateFreshT4(
+        accessToken: String,
+        staleEndpoints: Set<String>,
+        onStatus: (String) -> Unit,
+    ): ColabRuntimeSession {
+        // Generate nbh ONCE per allocation call so retries query/confirm the SAME VM instead of abandoning it
+        val nbh = uuidToWebSafeBase64(UUID.randomUUID())
+        val assignUrl = "$COLAB_DOMAIN$TUN_ENDPOINT/assign?nbh=${urlEncode(nbh)}&variant=GPU&accelerator=T4&authuser=0"
+        var lastError: Throwable? = null
+
+        for (attempt in 0..2) {
             try {
-                // Before requesting another slot on retry, check if Colab actually finished provisioning on the previous attempt
-                if (bootAttempt > 0) {
+                if (attempt > 0) {
                     val currentAssignments = listAssignments(accessToken)
                     val adopted = currentAssignments.firstOrNull {
                         it.endpoint !in staleEndpoints && it.accelerator.equals("T4", ignoreCase = true)
@@ -227,163 +269,147 @@ class ColabClient(
                             accelerator = adopted.accelerator,
                             proxyUrl = adopted.proxyUrl.trimEnd('/'),
                             proxyToken = adopted.proxyToken,
-                            notebookHash = uuidToWebSafeBase64(UUID.randomUUID()),
-                            isFreshlyAllocated = true,
-                        )
-                        if (isProxyReachable(adoptedSession)) {
-                            adoptedSession.lastVerifiedAtMs = System.currentTimeMillis()
-                            activeSession = adoptedSession
-                            onStatus("Connected to newly provisioned Colab ${adoptedSession.accelerator} runtime.")
-                            return@withContext adoptedSession
-                        }
-                    }
-                }
-
-                val attemptReadTimeoutSec = when (bootAttempt) {
-                    0 -> 35L
-                    1 -> 55L
-                    else -> 75L
-                }
-                val session = allocateFreshT4(accessToken, staleEndpoints, attemptReadTimeoutSec, onStatus)
-                AppLogger.i(TAG, "T4 runtime assigned: ${session.endpoint} (fresh=${session.isFreshlyAllocated})")
-                if (session.isFreshlyAllocated) {
-                    onStatus("T4 GPU allocated — waiting for Jupyter runtime...")
-                    waitForRuntimeReady(session)
-                }
-                session.lastVerifiedAtMs = System.currentTimeMillis()
-                activeSession = session
-                return@withContext session
-            } catch (ce: CancellationException) {
-                throw ce
-            } catch (t: Throwable) {
-                lastBootErr = t
-                AppLogger.w(TAG, "T4 allocation attempt ${bootAttempt + 1} failed", t)
-                if (bootAttempt < 2) {
-                    onStatus("Retrying T4 GPU allocation (${t.message ?: "network hiccup"})...")
-                    delay(250L)
-                }
-            }
-        }
-        throw lastBootErr ?: IllegalStateException("Colab T4 GPU allocation failed.")
-    }
-
-    private suspend fun waitForRuntimeReady(session: ColabRuntimeSession) {
-        val deadlineMs = System.currentTimeMillis() + 5_000L
-        while (System.currentTimeMillis() < deadlineMs) {
-            if (isProxyReachable(session)) return
-            delay(250L)
-        }
-    }
-
-    private suspend fun allocateFreshT4(
-        accessToken: String,
-        staleEndpoints: Set<String>,
-        readTimeoutSec: Long,
-        onStatus: (String) -> Unit,
-    ): ColabRuntimeSession {
-        val attemptClient = if (readTimeoutSec == 35L) {
-            assignHttpClient
-        } else {
-            assignHttpClient.newBuilder()
-                .readTimeout(readTimeoutSec, TimeUnit.SECONDS)
-                .build()
-        }
-        val nbh = uuidToWebSafeBase64(UUID.randomUUID())
-        val assignUrl = "$COLAB_DOMAIN$TUN_ENDPOINT/assign?nbh=${urlEncode(nbh)}&variant=GPU&accelerator=T4&authuser=0"
-
-        onStatus("Requesting Colab T4 GPU slot...")
-        val getReq = Request.Builder()
-            .url(assignUrl)
-            .get()
-            .header("Connection", "close")
-            .header("Authorization", "Bearer $accessToken")
-            .header("Accept", "application/json")
-            .header(AGENT_HEADER, AGENT_VALUE)
-            .build()
-
-        val getBody = attemptClient.executeCancellable(getReq).use { resp ->
-            val raw = resp.body?.string().orEmpty()
-            if (!resp.isSuccessful) {
-                throw IllegalStateException("Colab assign GET failed (${resp.code}): $raw")
-            }
-            stripXssi(raw)
-        }
-
-        val getObj = json.parseToJsonElement(getBody).jsonObject
-        if (getObj.containsKey("runtimeProxyInfo")) {
-            return parseAssignedSession(getObj, nbh, isFresh = false)
-        }
-
-        val xsrfToken = getObj["token"]?.jsonPrimitive?.content
-            ?: throw IllegalStateException("Missing XSRF token from Colab /assign response")
-
-        onStatus("Confirming Colab T4 GPU allocation...")
-        val postReq = Request.Builder()
-            .url(assignUrl)
-            .post(ByteArray(0).toRequestBody(null))
-            .header("Connection", "close")
-            .header("Authorization", "Bearer $accessToken")
-            .header("Accept", "application/json")
-            .header(AGENT_HEADER, AGENT_VALUE)
-            .header(XSRF_HEADER, xsrfToken)
-            .build()
-
-        return coroutineScope {
-            val winner = CompletableDeferred<ColabRuntimeSession>()
-            val postJob = launch {
-                try {
-                    val postBody = attemptClient.executeCancellable(postReq).use { resp ->
-                        val raw = resp.body?.string().orEmpty()
-                        if (resp.code == 412) {
-                            throw IllegalStateException("Too many active Colab sessions (412). Free a session in Colab and retry.")
-                        }
-                        if (!resp.isSuccessful) {
-                            throw IllegalStateException("Colab T4 GPU allocation failed (${resp.code}): $raw")
-                        }
-                        stripXssi(raw)
-                    }
-                    val parsed = parseAssignedSession(json.parseToJsonElement(postBody).jsonObject, nbh, isFresh = true)
-                    winner.complete(parsed)
-                } catch (ce: CancellationException) {
-                    throw ce
-                } catch (t: Throwable) {
-                    winner.completeExceptionally(t)
-                }
-            }
-
-            // If POST response stalls on Colab gateway/NAT, adopt the newly provisioned runtime as soon as /assignments exposes it
-            val watcherJob = launch {
-                delay(7_000L)
-                while (!winner.isCompleted) {
-                    val current = listAssignments(accessToken)
-                    val found = current.firstOrNull {
-                        it.endpoint !in staleEndpoints && it.accelerator.equals("T4", ignoreCase = true)
-                    } ?: current.firstOrNull { it.endpoint !in staleEndpoints }
-                    if (found != null) {
-                        val adopted = ColabRuntimeSession(
-                            endpoint = found.endpoint,
-                            accelerator = found.accelerator,
-                            proxyUrl = found.proxyUrl.trimEnd('/'),
-                            proxyToken = found.proxyToken,
                             notebookHash = nbh,
                             isFreshlyAllocated = true,
                         )
-                        if (winner.complete(adopted)) {
-                            AppLogger.i(TAG, "Adopted T4 runtime ${found.endpoint} via fast /assignments watcher")
-                            return@launch
+                        if (isProxyReachable(adoptedSession)) {
+                            AppLogger.i(TAG, "Adopted T4 runtime ${adopted.endpoint} via /assignments on retry $attempt")
+                            onStatus("Connected to newly provisioned Colab ${adoptedSession.accelerator} runtime.")
+                            return adoptedSession
                         }
                     }
-                    delay(3_500L)
+                }
+
+                onStatus(
+                    if (attempt == 0) {
+                        "Requesting Colab T4 GPU slot..."
+                    } else {
+                        "Checking Colab T4 GPU allocation status (retry $attempt/2)..."
+                    },
+                )
+                val getReq = Request.Builder()
+                    .url(assignUrl)
+                    .get()
+                    .header("Connection", "close")
+                    .header("Authorization", "Bearer $accessToken")
+                    .header("Accept", "application/json")
+                    .header(AGENT_HEADER, AGENT_VALUE)
+                    .build()
+
+                val getBody = assignHttpClient.executeCancellable(getReq).use { resp ->
+                    val raw = resp.body?.string().orEmpty()
+                    if (resp.code == 502 || resp.code == 503 || resp.code == 504) {
+                        throw TransientColabAssignException(
+                            resp.code,
+                            "Colab assign GET gateway error (${resp.code}): ${raw.take(200)}",
+                        )
+                    }
+                    if (!resp.isSuccessful) {
+                        throw IllegalStateException("Colab assign GET failed (${resp.code}): $raw")
+                    }
+                    stripXssi(raw)
+                }
+
+                val getObj = json.parseToJsonElement(getBody).jsonObject
+                if (getObj.containsKey("runtimeProxyInfo")) {
+                    AppLogger.i(TAG, "Colab GET /assign returned runtimeProxyInfo immediately for nbh=${nbh.take(12)} (attempt=$attempt)")
+                    return parseAssignedSession(getObj, nbh, isFresh = attempt > 0)
+                }
+
+                val xsrfToken = getObj["token"]?.jsonPrimitive?.content
+                    ?: throw IllegalStateException("Missing XSRF token from Colab /assign response")
+
+                onStatus("Confirming Colab T4 GPU allocation (free-tier VMs may take up to 2 min)...")
+                val postReq = Request.Builder()
+                    .url(assignUrl)
+                    .post(ByteArray(0).toRequestBody(null))
+                    .header("Connection", "close")
+                    .header("Authorization", "Bearer $accessToken")
+                    .header("Accept", "application/json")
+                    .header(AGENT_HEADER, AGENT_VALUE)
+                    .header(XSRF_HEADER, xsrfToken)
+                    .build()
+
+                return coroutineScope {
+                    val winner = CompletableDeferred<ColabRuntimeSession>()
+                    val postJob = launch {
+                        try {
+                            val postBody = assignHttpClient.executeCancellable(postReq).use { resp ->
+                                val raw = resp.body?.string().orEmpty()
+                                if (resp.code == 412) {
+                                    throw IllegalStateException("Too many active Colab sessions (412). Free a session in Colab and retry.")
+                                }
+                                if (resp.code == 502 || resp.code == 503 || resp.code == 504) {
+                                    throw TransientColabAssignException(
+                                        resp.code,
+                                        "Colab T4 GPU allocation gateway error (${resp.code}): ${raw.take(200)}",
+                                    )
+                                }
+                                if (!resp.isSuccessful) {
+                                    throw IllegalStateException("Colab T4 GPU allocation failed (${resp.code}): $raw")
+                                }
+                                stripXssi(raw)
+                            }
+                            val parsed = parseAssignedSession(json.parseToJsonElement(postBody).jsonObject, nbh, isFresh = true)
+                            winner.complete(parsed)
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            winner.completeExceptionally(t)
+                        }
+                    }
+
+                    // If POST response stalls on Colab gateway/NAT, adopt the newly provisioned runtime as soon as /assignments exposes it
+                    val watcherJob = launch {
+                        delay(10_000L)
+                        while (!winner.isCompleted) {
+                            val current = listAssignments(accessToken)
+                            val found = current.firstOrNull {
+                                it.endpoint !in staleEndpoints && it.accelerator.equals("T4", ignoreCase = true)
+                            } ?: current.firstOrNull { it.endpoint !in staleEndpoints }
+                            if (found != null) {
+                                val adopted = ColabRuntimeSession(
+                                    endpoint = found.endpoint,
+                                    accelerator = found.accelerator,
+                                    proxyUrl = found.proxyUrl.trimEnd('/'),
+                                    proxyToken = found.proxyToken,
+                                    notebookHash = nbh,
+                                    isFreshlyAllocated = true,
+                                )
+                                if (winner.complete(adopted)) {
+                                    AppLogger.i(TAG, "Adopted T4 runtime ${found.endpoint} via /assignments watcher")
+                                    return@launch
+                                }
+                            }
+                            delay(5_000L)
+                        }
+                    }
+
+                    try {
+                        winner.await()
+                    } finally {
+                        watcherJob.cancel()
+                        postJob.cancel()
+                    }
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                lastError = t
+                val isRetryable = t is SocketTimeoutException ||
+                    t is TransientColabAssignException ||
+                    t is IOException
+                AppLogger.w(TAG, "T4 allocation attempt ${attempt + 1} failed for nbh=${nbh.take(12)} (retryable=$isRetryable)", t)
+                if (isRetryable && attempt < 2) {
+                    val backoffSec = if (attempt == 0) 10L else 20L
+                    onStatus("Colab T4 allocation delayed — waiting ${backoffSec}s to recover VM (${t.message ?: "timeout"})...")
+                    delay(backoffSec * 1_000L)
+                } else {
+                    throw t
                 }
             }
-
-            try {
-                winner.await()
-            } finally {
-                watcherJob.cancel()
-                postJob.cancel()
-            }
         }
+        throw lastError ?: IllegalStateException("Colab T4 GPU allocation failed.")
     }
 
     private fun parseAssignedSession(

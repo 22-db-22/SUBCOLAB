@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.openscribe.android.xbafst"
+        applicationId = "com.openscribe.android"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
