@@ -315,6 +315,13 @@ data class JobProgressState(
 )
 
 @Serializable
+enum class ThemeMode(val label: String) {
+    SYSTEM("System"),
+    LIGHT("Light"),
+    DARK("Dark"),
+}
+
+@Serializable
 data class AppSettings(
     val cleanAudio: Boolean = false,
     val modelId: String = "large-v3",
@@ -325,4 +332,5 @@ data class AppSettings(
     val customOauthClientSecret: String = "",
     val hasCookiesFile: Boolean = false,
     val subtitleFontSize: Int = 46,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
 )

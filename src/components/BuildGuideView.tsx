@@ -3,25 +3,25 @@ import { CloudDownload, GitBranch, Smartphone, Terminal } from 'lucide-react';
 const STEPS = [
   {
     icon: GitBranch,
-    title: '1. Push Project to a Free GitHub Repository',
-    body: 'Create a free GitHub account, make a new repository (e.g. openscribe-android), and push this generated project folder to the main branch.',
-    code: 'git init && git add . && git commit -m "OpenScribe Android" && git branch -M main && git push -u origin main',
+    title: '1. Push Project to GitHub (SUBCOLAB)',
+    body: 'Push this repository to github.com/22-db-22/SUBCOLAB (main branch). GitHub Actions automatically builds and tests the Android APK.',
+    code: 'git init && git add . && git commit -m "SUBCOLAB v1.0" && git branch -M main && git push -u origin main',
   },
   {
     icon: CloudDownload,
-    title: '2. Download Compiled APK from GitHub Actions',
-    body: 'Open your repo -> Actions tab -> "Build OpenScribe Android APK". GitHub runs JDK 17, Android SDK, unit tests, and Gradle to produce OpenScribe-Android-APKs (arm64-v8a & universal).',
+    title: '2. Download SUBCOLAB-v1.0-arm64.apk from Releases or Actions',
+    body: 'Install SUBCOLAB-v1.0-arm64.apk from GitHub Releases (or the Actions workflow artifact) on any Android 8.0+ 64-bit phone.',
     code: '.github/workflows/build-apk.yml',
   },
   {
     icon: Smartphone,
     title: '3. Install & One-Time Google Sign-In',
-    body: 'Unzip the downloaded artifact, tap app-arm64-v8a-debug.apk on your Android phone, allow Notifications, and tap Settings -> Sign in with Google (Colab) to authorize via sdk.cloud.google.com.',
+    body: 'Allow Notifications, open SUBCOLAB -> Settings -> Sign in with Google (Colab). Tokens stay encrypted on your phone with zero developer servers.',
   },
   {
     icon: Terminal,
     title: '4. Share Any Video -> Watch Now or Download',
-    body: 'Allow "Display over other apps" once so Watch Now auto-opens over YouTube. Share a video -> pick Language -> tap Watch Now (smooth live stream + adaptive audio-only subs, auto-opens) or Download (full <=720p MP4 quietly in background).',
+    body: 'Allow "Display over other apps" once so Watch Now auto-opens over YouTube. Share a video -> pick Language -> tap Watch Now (smooth live stream + adaptive audio-only subs) or Download (full <=720p MP4 quietly in background).',
   },
 ];
 

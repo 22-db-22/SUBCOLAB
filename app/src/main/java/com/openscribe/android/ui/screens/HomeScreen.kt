@@ -219,7 +219,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "OpenScribe",
+                                    text = "SUBCOLAB",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 19.sp,
                                 )
@@ -239,7 +239,7 @@ fun HomeScreen(
                         IconButton(onClick = { showAboutDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Info,
-                                contentDescription = "About OpenScribe",
+                                contentDescription = "About SUBCOLAB",
                                 tint = OpenScribeColors.TextSecondary,
                             )
                         }
@@ -547,11 +547,11 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "OpenScribe Android",
+                                text = "SUBCOLAB",
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                text = "v1.0.0",
+                                text = "v1.0",
                                 color = OpenScribeColors.SagePrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -586,7 +586,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .clickable {
                                 runCatching {
-                                    uriHandler.openUri("https://github.com/22-db-22/openscribe-android")
+                                    uriHandler.openUri("https://github.com/22-db-22/SUBCOLAB")
                                 }
                             },
                     ) {
@@ -596,7 +596,7 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(
-                                text = "github.com/22-db-22/openscribe-android",
+                                text = "github.com/22-db-22/SUBCOLAB",
                                 color = OpenScribeColors.SkyTextStrong,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -610,7 +610,7 @@ fun HomeScreen(
                         }
                     }
                     Text(
-                        text = "Credits: Whisper / faster-whisper, google-colab-cli protocol, libmpv, youtubedl-android (yt-dlp + FFmpeg).",
+                        text = "Based on & inspired by OpenScribe Colab workflow by Faisal Saddique (MIT). Credits: OpenAI Whisper, faster-whisper, google-colab-cli, libmpv, youtubedl-android.",
                         color = OpenScribeColors.TextSecondary,
                         fontSize = 11.sp,
                         lineHeight = 15.sp,
@@ -854,7 +854,7 @@ private fun TranslateTabContent(
                             )
                             if (!quickTipsExpanded) {
                                 Text(
-                                    text = "Share directly from YouTube -> OpenScribe, or swipe in player for brightness & volume",
+                                    text = "Share directly from YouTube -> SUBCOLAB, or swipe in player for brightness & volume",
                                     color = OpenScribeColors.TextSecondary,
                                     fontSize = 11.sp,
                                     maxLines = 1,
@@ -887,7 +887,7 @@ private fun TranslateTabContent(
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
-                                text = "• Share any video from YouTube -> OpenScribe and pick Watch Now (live stream) or Download (full MP4).",
+                                text = "• Share any video from YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
                                 color = OpenScribeColors.TextSecondary,
                                 fontSize = 11.sp,
                                 lineHeight = 16.sp,
@@ -998,7 +998,7 @@ private fun TranslateTabContent(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text(
-                            "Paste YouTube or video URL (or Share -> OpenScribe)",
+                            "Paste YouTube or video URL (or Share -> SUBCOLAB)",
                             fontSize = 13.sp,
                             color = OpenScribeColors.TextSecondary,
                         )

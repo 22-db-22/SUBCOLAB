@@ -5,6 +5,9 @@ app/build/
 local.properties
 *.apk
 *.aab
+*.jks
+*.keystore
+cookies.txt
 .idea/
 dist/
 coverage/
@@ -12,4 +15,3 @@ coverage/
 *.log
 .env*
 !.env.example
-

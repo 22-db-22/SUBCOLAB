@@ -31,12 +31,15 @@ import androidx.compose.material.icons.filled.Cookie
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -71,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openscribe.android.colab.AuthUiState
 import com.openscribe.android.model.AppSettings
+import com.openscribe.android.model.ThemeMode
 import com.openscribe.android.ui.theme.OpenScribeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,6 +96,7 @@ fun SettingsScreen(
     onSetCustomOauthConfig: (String, String) -> Unit,
     onSetSubtitleFontSize: (Int) -> Unit,
     onSetModelId: (String) -> Unit,
+    onSetThemeMode: (ThemeMode) -> Unit = {},
     onOpenDebugLogs: () -> Unit = {},
     onCopyAllLogs: () -> String = { "" },
     onBack: () -> Unit,
@@ -148,6 +153,62 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // 0. Appearance / Theme Mode Selector (System / Light / Dark)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
+                border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = OpenScribeColors.SagePrimary,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Choose System, Light, or Dark mode (player stays cinema-black).",
+                                color = OpenScribeColors.TextSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ThemeMode.entries.forEach { mode ->
+                            val selected = settings.themeMode == mode
+                            FilterChip(
+                                selected = selected,
+                                onClick = { onSetThemeMode(mode) },
+                                label = {
+                                    Text(
+                                        text = mode.label,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 13.sp,
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = OpenScribeColors.SagePrimary,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = OpenScribeColors.SurfaceElevated,
+                                    labelColor = OpenScribeColors.TextPrimary,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+
             // 1. Google Colab OAuth2 Account
             Card(
                 colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
@@ -532,7 +593,7 @@ fun SettingsScreen(
                     Text("Auto-Open Player Over Other Apps", style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = if (canDrawOverlays) {
-                            "Enabled — when you share a link and tap Watch Now, OpenScribe will automatically pop open over YouTube or any other app as soon as initial subtitles are ready."
+                            "Enabled — when you share a link and tap Watch Now, SUBCOLAB will automatically pop open over YouTube or any other app as soon as initial subtitles are ready."
                         } else {
                             "Allow 'Display over other apps' so Watch Now can automatically open the video player over YouTube/browsers when initial subtitles arrive."
                         },
@@ -620,7 +681,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 6. About OpenScribe & Credits
+            // 6. About SUBCOLAB & Credits
             Card(
                 colors = CardDefaults.cardColors(containerColor = OpenScribeColors.CardSurface),
                 border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
@@ -640,9 +701,9 @@ fun SettingsScreen(
                             tint = OpenScribeColors.SagePrimary,
                         )
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("About OpenScribe", style = MaterialTheme.typography.titleMedium)
+                            Text("About SUBCOLAB", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "OpenScribe Android v1.0.0",
+                                text = "SUBCOLAB v1.0",
                                 color = OpenScribeColors.SagePrimary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -682,7 +743,7 @@ fun SettingsScreen(
                             .fillMaxWidth()
                             .clickable {
                                 runCatching {
-                                    uriHandler.openUri("https://github.com/22-db-22/openscribe-android")
+                                    uriHandler.openUri("https://github.com/22-db-22/SUBCOLAB")
                                 }
                             },
                     ) {
@@ -701,7 +762,7 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
-                                    text = "github.com/22-db-22/openscribe-android",
+                                    text = "github.com/22-db-22/SUBCOLAB",
                                     color = OpenScribeColors.SkyTextStrong,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -726,7 +787,8 @@ fun SettingsScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "• Whisper & faster-whisper (MIT)\n" +
+                            text = "• Based on & inspired by OpenScribe Colab workflow by Faisal Saddique (https://github.com/faisal-saddique/openscribe, MIT License)\n" +
+                                "• OpenAI Whisper & SYSTRAN faster-whisper (MIT)\n" +
                                 "• google-colab-cli runtime protocol\n" +
                                 "• libmpv embedded hardware video player (LGPL/GPL)\n" +
                                 "• youtubedl-android — yt-dlp & FFmpeg (GPL/Unlicense)",

@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,7 +82,8 @@ class SharePromptActivity : ComponentActivity() {
         val initialLang = app.coordinator.state.value.sourceLang.ifBlank { "auto" }
 
         setContent {
-            OpenScribeTheme {
+            val settings by app.settingsRepository.settings.collectAsState()
+            OpenScribeTheme(themeMode = settings.themeMode) {
                 ShareOverlayCard(
                     cleanUrl = cleanUrl,
                     initialLang = initialLang,
@@ -146,7 +148,7 @@ private fun ShareOverlayCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "OpenScribe",
+                        text = "SUBCOLAB",
                         color = OpenScribeColors.TextPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,

@@ -43,7 +43,7 @@ const SAMPLE_CUES: SimCue[] = [
   { timeSec: 25, text: 'First sip... wow, deep umami and zero heaviness!' },
 ];
 
-export function PhonePreview() {
+export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
   const [rawUrl, setRawUrl] = useState(
     'https://www.google.com/goto?url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FdQw4w9WgXcQ',
   );
@@ -177,15 +177,23 @@ export function PhonePreview() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
       {/* Left: Interactive Explanation & Controls */}
       <div className="space-y-5">
-        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-6 shadow-sm">
+        <div
+          className={`rounded-2xl border p-6 shadow-sm ${
+            isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+          }`}
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-[#1C2621]">
+              <h2
+                className={`text-lg font-semibold ${
+                  isDark ? 'text-[#F8FAFC]' : 'text-[#1C2621]'
+                }`}
+              >
                 Interactive Android Flow Preview
               </h2>
-              <p className="mt-1 text-sm text-[#5A6860]">
-                Calm Cream, Sage Green &amp; Soft Sky Blue Material 3 theme — while keeping the
-                embedded libmpv player cinema-black with high-contrast yellow subtitles.
+              <p className={`mt-1 text-sm ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                Test SUBCOLAB v1.0 in Light or Dark mode — while keeping the embedded libmpv player
+                cinema-black with high-contrast yellow subtitles.
               </p>
             </div>
             <button
@@ -204,95 +212,190 @@ export function PhonePreview() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[#2E7D5B]">
+            <div
+              className={`rounded-xl border p-3.5 ${
+                isDark ? 'border-[#283449] bg-[#0B0F17]' : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              }`}
+            >
+              <p
+                className={`text-xs font-semibold uppercase tracking-wider ${
+                  isDark ? 'text-[#60A5FA]' : 'text-[#2E7D5B]'
+                }`}
+              >
                 1. Embedded libmpv
               </p>
-              <p className="mt-1 text-xs text-[#5A6860]">
-                <code className="break-all font-medium text-[#2B6CB0]">
+              <p className={`mt-1 text-xs ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                <code className={`break-all font-medium ${isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'}`}>
                   dev.jdtech.mpv:libmpv:0.5.1
                 </code>{' '}
                 streaming smoothly on cinema-black with live{' '}
-                <code className="font-medium text-[#2E7D5B]">sub-reload</code>.
+                <code className={`font-medium ${isDark ? 'text-[#34D399]' : 'text-[#2E7D5B]'}`}>
+                  sub-reload
+                </code>.
               </p>
             </div>
-            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[#2B6CB0]">
+            <div
+              className={`rounded-xl border p-3.5 ${
+                isDark ? 'border-[#283449] bg-[#0B0F17]' : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              }`}
+            >
+              <p
+                className={`text-xs font-semibold uppercase tracking-wider ${
+                  isDark ? 'text-[#38BDF8]' : 'text-[#2B6CB0]'
+                }`}
+              >
                 2. Embedded yt-dlp
               </p>
-              <p className="mt-1 text-xs text-[#5A6860]">
-                <code className="break-all font-medium text-[#2B6CB0]">
+              <p className={`mt-1 text-xs ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                <code className={`break-all font-medium ${isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'}`}>
                   youtubedl-android:0.18.1
                 </code>{' '}
                 with loopback live proxy + adaptive audio-only chunks.
               </p>
             </div>
-            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-[#16A34A]">
+            <div
+              className={`rounded-xl border p-3.5 ${
+                isDark ? 'border-[#283449] bg-[#0B0F17]' : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              }`}
+            >
+              <p
+                className={`text-xs font-semibold uppercase tracking-wider ${
+                  isDark ? 'text-[#34D399]' : 'text-[#16A34A]'
+                }`}
+              >
                 3. Headless Colab T4
               </p>
-              <p className="mt-1 text-xs text-[#5A6860]">
-                <code className="font-medium text-[#2B6CB0]">google-colab-cli</code> OAuth2 +
-                Whisper <code className="font-medium text-[#1C2621]">large-v3</code> WebSocket
-                streaming.
+              <p className={`mt-1 text-xs ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                <code className={`font-medium ${isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'}`}>
+                  google-colab-cli
+                </code>{' '}
+                OAuth2 + Whisper{' '}
+                <code className={`font-medium ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                  large-v3
+                </code>{' '}
+                WebSocket streaming.
               </p>
             </div>
           </div>
         </div>
 
         {/* Live Foreground Service & Protocol State */}
-        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm">
+        <div
+          className={`rounded-2xl border p-5 shadow-sm ${
+            isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+          }`}
+        >
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[#1C2621]">
+            <h3
+              className={`text-sm font-semibold ${
+                isDark ? 'text-[#F8FAFC]' : 'text-[#1C2621]'
+              }`}
+            >
               Android Foreground Service State
             </h3>
             <span
               className={`rounded-md px-2.5 py-0.5 text-xs font-semibold ${
                 isGpuWarm
-                  ? 'bg-[#DDF0FB] text-[#2B6CB0]'
-                  : 'bg-[#F1ECE1] text-[#5A6860]'
+                  ? isDark
+                    ? 'bg-[#0C2A3E] text-[#60A5FA]'
+                    : 'bg-[#DDF0FB] text-[#2B6CB0]'
+                  : isDark
+                    ? 'bg-[#1B2434] text-[#94A3B8]'
+                    : 'bg-[#F1ECE1] text-[#5A6860]'
               }`}
             >
               {isGpuWarm ? 'T4 GPU Warm (WakeLock Active)' : 'Idle'}
             </span>
           </div>
           <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
-            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3">
-              <dt className="text-[#5A6860]">Unwrapped Target URL</dt>
-              <dd className="mt-1 break-all font-mono text-[#2B6CB0]">{cleanUrl || 'None'}</dd>
+            <div
+              className={`rounded-xl border p-3 ${
+                isDark ? 'border-[#283449] bg-[#0B0F17]' : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              }`}
+            >
+              <dt className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>Unwrapped Target URL</dt>
+              <dd
+                className={`mt-1 break-all font-mono ${
+                  isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
+                }`}
+              >
+                {cleanUrl || 'None'}
+              </dd>
             </div>
-            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3">
-              <dt className="text-[#5A6860]">Live Notification Banner</dt>
-              <dd className="mt-1 leading-relaxed font-semibold text-[#2E7D5B]">{statusLine}</dd>
+            <div
+              className={`rounded-xl border p-3 ${
+                isDark ? 'border-[#283449] bg-[#0B0F17]' : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              }`}
+            >
+              <dt className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>
+                Live Notification Banner
+              </dt>
+              <dd
+                className={`mt-1 leading-relaxed font-semibold ${
+                  isDark ? 'text-[#34D399]' : 'text-[#2E7D5B]'
+                }`}
+              >
+                {statusLine}
+              </dd>
             </div>
           </dl>
         </div>
 
-        {/* About OpenScribe Card */}
-        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm">
+        {/* About SUBCOLAB Card */}
+        <div
+          className={`rounded-2xl border p-5 shadow-sm ${
+            isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+          }`}
+        >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold text-[#1C2621]">About OpenScribe</h3>
-              <p className="text-xs font-medium text-[#2E7D5B]">OpenScribe Android v1.0.0</p>
+              <h3
+                className={`text-sm font-semibold ${
+                  isDark ? 'text-[#F8FAFC]' : 'text-[#1C2621]'
+                }`}
+              >
+                About SUBCOLAB
+              </h3>
+              <p
+                className={`text-xs font-medium ${
+                  isDark ? 'text-[#60A5FA]' : 'text-[#2E7D5B]'
+                }`}
+              >
+                SUBCOLAB v1.0
+              </p>
             </div>
-            <span className="rounded-lg bg-[#DCEFE5] px-2.5 py-1 text-[11px] font-semibold text-[#2E7D5B]">
-              Cream + Sage + Sky
+            <span
+              className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
+                isDark ? 'bg-[#172554] text-[#60A5FA]' : 'bg-[#DCEFE5] text-[#2E7D5B]'
+              }`}
+            >
+              {isDark ? 'Dark Mode' : 'Light Mode'}
             </span>
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-[#5A6860]">
+          <p className={`mt-2 text-xs leading-relaxed ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
             Live AI video translation powered by Whisper large-v3 on Google Colab T4 &amp; libmpv.
+            Based on &amp; inspired by OpenScribe by Faisal Saddique (MIT License).
           </p>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E2DCCD] pt-3 text-xs">
-            <span className="text-[#5A6860]">
-              Created by <strong className="text-[#1C2621]">writtenwithharmony@gmail.com</strong>
+          <div
+            className={`mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs ${
+              isDark ? 'border-[#283449]' : 'border-[#E2DCCD]'
+            }`}
+          >
+            <span className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>
+              Created by{' '}
+              <strong className={isDark ? 'text-white' : 'text-[#1C2621]'}>
+                writtenwithharmony@gmail.com
+              </strong>
             </span>
             <a
-              href="https://github.com/22-db-22/openscribe-android"
+              href="https://github.com/22-db-22/SUBCOLAB"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 font-semibold text-[#2B6CB0] hover:underline"
+              className={`inline-flex items-center gap-1 font-semibold hover:underline ${
+                isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
+              }`}
             >
-              GitHub Repository
+              github.com/22-db-22/SUBCOLAB
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
           </div>
@@ -302,16 +405,16 @@ export function PhonePreview() {
       {/* Right: Realistic Android Phone Frame */}
       <div
         className={`mx-auto w-full max-w-[380px] rounded-[2.2rem] border-[6px] border-[#26322C] p-3 shadow-xl transition-colors ${
-          screen === 'player' ? 'bg-black' : 'bg-[#FAF7F0]'
+          screen === 'player' ? 'bg-black' : isDark ? 'bg-[#0B0F17]' : 'bg-[#FAF7F0]'
         }`}
       >
-        {/* Status Bar (Light icons on Cinema Player, Dark icons on Cream Home) */}
+        {/* Status Bar (Light icons on Cinema Player & Dark Mode, Dark icons on Light Home) */}
         <div
           className={`flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold ${
-            screen === 'player' ? 'text-slate-300' : 'text-[#1C2621]'
+            screen === 'player' || isDark ? 'text-slate-200' : 'text-[#1C2621]'
           }`}
         >
-          <span>OpenScribe</span>
+          <span>SUBCOLAB</span>
           <span className="flex items-center gap-1.5">
             {isGpuWarm && (
               <span
@@ -328,7 +431,9 @@ export function PhonePreview() {
           className={`min-h-[560px] overflow-hidden rounded-[1.5rem] border ${
             screen === 'player'
               ? 'border-slate-800 bg-black'
-              : 'border-[#E2DCCD] bg-[#FAF7F0]'
+              : isDark
+                ? 'border-[#283449] bg-[#0B0F17]'
+                : 'border-[#E2DCCD] bg-[#FAF7F0]'
           }`}
         >
           {screen === 'player' ? (
@@ -471,14 +576,26 @@ export function PhonePreview() {
               {/* Header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2E7D5B] text-white shadow-sm">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
                     <Subtitles className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-[#1C2621]">OpenScribe</p>
+                    <p
+                      className={`text-sm font-bold ${
+                        isDark ? 'text-white' : 'text-[#1C2621]'
+                      }`}
+                    >
+                      SUBCOLAB
+                    </p>
                     <p
                       className={`text-[11px] font-medium ${
-                        isGpuWarm ? 'text-[#2B6CB0]' : 'text-[#5A6860]'
+                        isGpuWarm
+                          ? isDark
+                            ? 'text-[#60A5FA]'
+                            : 'text-[#2B6CB0]'
+                          : isDark
+                            ? 'text-[#94A3B8]'
+                            : 'text-[#5A6860]'
                       }`}
                     >
                       {isGpuWarm ? 'T4 GPU Warm' : 'Live AI Video Translator'}
@@ -488,7 +605,7 @@ export function PhonePreview() {
                 <button
                   type="button"
                   onClick={() => setShowAbout((a) => !a)}
-                  aria-label="About OpenScribe"
+                  aria-label="About SUBCOLAB"
                   className="rounded-lg p-1.5 text-[#5A6860] transition hover:bg-[#F1ECE1] hover:text-[#1C2621]"
                 >
                   <Info className="h-4 w-4" />
@@ -498,7 +615,7 @@ export function PhonePreview() {
               {showAbout && (
                 <div className="space-y-1.5 rounded-2xl border border-[#E2DCCD] bg-white p-3 text-[11px] shadow-sm">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#1C2621]">OpenScribe Android v1.0.0</span>
+                    <span className="font-bold text-[#1C2621]">SUBCOLAB v1.0</span>
                     <button
                       type="button"
                       onClick={() => setShowAbout(false)}
@@ -510,21 +627,33 @@ export function PhonePreview() {
                   </div>
                   <p className="text-[#5A6860]">Created by writtenwithharmony@gmail.com</p>
                   <p className="font-medium text-[#2B6CB0]">
-                    github.com/22-db-22/openscribe-android
+                    github.com/22-db-22/SUBCOLAB
                   </p>
                 </div>
               )}
 
               {/* Quick Tips Card */}
               {showQuickTip && screen === 'home' && (
-                <div className="flex items-start gap-2.5 rounded-2xl border border-[#E2DCCD] bg-white p-2.5 text-[11px] shadow-xs">
-                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#DDF0FB] text-[#2B6CB0]">
+                <div
+                  className={`flex items-start gap-2.5 rounded-2xl border p-2.5 text-[11px] shadow-xs ${
+                    isDark
+                      ? 'border-[#283449] bg-[#131A26]'
+                      : 'border-[#E2DCCD] bg-white'
+                  }`}
+                >
+                  <div
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
+                      isDark ? 'bg-[#0C2A3E] text-[#60A5FA]' : 'bg-[#DDF0FB] text-[#2B6CB0]'
+                    }`}
+                  >
                     <Lightbulb className="h-3.5 w-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-[#1C2621]">Quick Tip</p>
-                    <p className="text-[#5A6860]">
-                      Share directly from YouTube → OpenScribe, or swipe left/right in the player
+                    <p className={`font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                      Quick Tip
+                    </p>
+                    <p className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>
+                      Share directly from YouTube → SUBCOLAB, or swipe left/right in the player
                       for brightness &amp; volume.
                     </p>
                   </div>
@@ -532,7 +661,7 @@ export function PhonePreview() {
                     type="button"
                     onClick={() => setShowQuickTip(false)}
                     aria-label="Dismiss tip"
-                    className="text-[#5A6860] hover:text-[#1C2621]"
+                    className={isDark ? 'text-[#94A3B8] hover:text-white' : 'text-[#5A6860] hover:text-[#1C2621]'}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -540,10 +669,16 @@ export function PhonePreview() {
               )}
 
               {/* URL Input */}
-              <div className="rounded-2xl border border-[#E2DCCD] bg-white p-3 shadow-xs">
+              <div
+                className={`rounded-2xl border p-3 shadow-xs ${
+                  isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                }`}
+              >
                 <label
                   htmlFor="sim-url"
-                  className="block text-xs font-semibold text-[#1C2621]"
+                  className={`block text-xs font-semibold ${
+                    isDark ? 'text-white' : 'text-[#1C2621]'
+                  }`}
                 >
                   Video Link
                 </label>
@@ -552,12 +687,20 @@ export function PhonePreview() {
                   type="url"
                   value={rawUrl}
                   onChange={(e) => setRawUrl(e.target.value)}
-                  className="mt-1.5 w-full rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] px-2.5 py-2 text-xs text-[#1C2621] focus:border-[#2E7D5B] focus:outline-none"
+                  className={`mt-1.5 w-full rounded-xl border px-2.5 py-2 text-xs focus:outline-none ${
+                    isDark
+                      ? 'border-[#283449] bg-[#0B0F17] text-white focus:border-[#2563EB]'
+                      : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#1C2621] focus:border-[#2E7D5B]'
+                  }`}
                 />
                 <button
                   type="button"
                   onClick={() => setScreen('sheet')}
-                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#2E7D5B] py-2.5 text-xs font-bold text-white transition hover:bg-[#25694c]"
+                  className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-white transition ${
+                    isDark
+                      ? 'bg-[#2563EB] hover:bg-[#1D4ED8]'
+                      : 'bg-[#2E7D5B] hover:bg-[#25694c]'
+                  }`}
                 >
                   <Play className="h-3.5 w-3.5" />
                   Configure &amp; Start Translation
@@ -736,20 +879,46 @@ export function PhonePreview() {
               )}
 
               {screen === 'home' && !isRunning && cueCount === 0 && !isGpuWarm && (
-                <div className="space-y-2 rounded-2xl border border-[#E2DCCD] bg-[#F1ECE1]/70 p-3 text-[11px] text-[#5A6860]">
-                  <p className="font-semibold text-[#1C2621]">Single-APK Ready</p>
+                <div
+                  className={`space-y-2 rounded-2xl border p-3 text-[11px] ${
+                    isDark
+                      ? 'border-[#283449] bg-[#131A26] text-[#94A3B8]'
+                      : 'border-[#E2DCCD] bg-[#F1ECE1]/70 text-[#5A6860]'
+                  }`}
+                >
+                  <p className={`font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                    Single-APK Ready
+                  </p>
                   <p>
                     Share any video from YouTube or tap Configure above. Watch Now live-streams
                     smoothly and auto-opens once initial subtitles arrive.
                   </p>
                   <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-semibold">
-                    <span className="rounded-md bg-[#DDF0FB] px-2 py-0.5 text-[#2B6CB0]">
+                    <span
+                      className={`rounded-md px-2 py-0.5 ${
+                        isDark
+                          ? 'bg-[#0C2A3E] text-[#60A5FA]'
+                          : 'bg-[#DDF0FB] text-[#2B6CB0]'
+                      }`}
+                    >
                       No Termux
                     </span>
-                    <span className="rounded-md bg-[#DCEFE5] px-2 py-0.5 text-[#2E7D5B]">
+                    <span
+                      className={`rounded-md px-2 py-0.5 ${
+                        isDark
+                          ? 'bg-[#1D283A] text-[#34D399]'
+                          : 'bg-[#DCEFE5] text-[#2E7D5B]'
+                      }`}
+                    >
                       Embedded libmpv
                     </span>
-                    <span className="rounded-md bg-white px-2 py-0.5 text-[#1C2621] ring-1 ring-[#E2DCCD]">
+                    <span
+                      className={`rounded-md px-2 py-0.5 ring-1 ${
+                        isDark
+                          ? 'bg-[#0B0F17] text-[#E2E8F0] ring-[#283449]'
+                          : 'bg-white text-[#1C2621] ring-[#E2DCCD]'
+                      }`}
+                    >
                       Scoped MediaStore
                     </span>
                   </div>

@@ -42,6 +42,7 @@ import com.openscribe.android.ui.screens.PlayerScreen
 import com.openscribe.android.ui.screens.SettingsScreen
 import com.openscribe.android.ui.theme.OpenScribeColors
 import com.openscribe.android.ui.theme.OpenScribeTheme
+import com.openscribe.android.ui.theme.isOpenScribeDarkTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -81,10 +82,13 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
 
         setContent {
-            OpenScribeTheme {
+            val settings by viewModel.settings.collectAsState()
+            val isDarkTheme = isOpenScribeDarkTheme(settings.themeMode)
+
+            OpenScribeTheme(themeMode = settings.themeMode) {
                 val rootView = LocalView.current
-                LaunchedEffect(currentRoute) {
-                    val isLightBars = currentRoute != "player"
+                LaunchedEffect(currentRoute, isDarkTheme) {
+                    val isLightBars = !isDarkTheme && currentRoute != "player"
                     val insetsController = WindowCompat.getInsetsController(window, rootView)
                     insetsController.isAppearanceLightStatusBars = isLightBars
                     insetsController.isAppearanceLightNavigationBars = isLightBars
@@ -97,7 +101,6 @@ class MainActivity : ComponentActivity() {
                 val jobState by viewModel.jobState.collectAsState()
                 val liveSrtRevision by viewModel.liveSrtRevision.collectAsState()
                 val authState by viewModel.authState.collectAsState()
-                val settings by viewModel.settings.collectAsState()
                 val lastCrashText by viewModel.lastCrashText.collectAsState()
                 val debugLogs by viewModel.debugLogs.collectAsState()
                 var showDebugLogsDialog by remember { mutableStateOf(false) }
@@ -236,6 +239,7 @@ class MainActivity : ComponentActivity() {
                             onSetCustomOauthConfig = viewModel::setCustomOauthConfig,
                             onSetSubtitleFontSize = viewModel::setSubtitleFontSize,
                             onSetModelId = viewModel::setModelId,
+                            onSetThemeMode = viewModel::setThemeMode,
                             onOpenDebugLogs = { showDebugLogsDialog = true },
                             onCopyAllLogs = viewModel::buildFullLogReport,
                             onBack = {

@@ -11,6 +11,7 @@ import com.openscribe.android.media.LocalAudioExtractor
 import com.openscribe.android.model.AppSettings
 import com.openscribe.android.model.JobProgressState
 import com.openscribe.android.model.SubtitleRetranslateOptions
+import com.openscribe.android.model.ThemeMode
 import com.openscribe.android.model.WorkflowMode
 import com.openscribe.android.service.OpenScribeForegroundService
 import com.openscribe.android.util.AppLogger
@@ -206,6 +207,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setModelId(modelId: String) {
         settingsRepo.update { it.copy(modelId = modelId.ifBlank { "large-v3" }) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        settingsRepo.update { it.copy(themeMode = mode) }
     }
 
     fun clearLastCrash() {

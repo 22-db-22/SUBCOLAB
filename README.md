@@ -1,78 +1,59 @@
-# OpenScribe Android
+# SUBCOLAB
 
-**OpenScribe Android** is a standalone, free & open-source Android app (Kotlin + Jetpack Compose + Material 3) that translates foreign-language videos into crisp yellow English subtitles on a free **Google Colab T4 GPU** and plays or saves them inside **one single APK**.
+**SUBCOLAB v1.0** is a free, open-source standalone Android app (Kotlin + Jetpack Compose + Material 3) that translates foreign-language videos into crisp yellow English subtitles on your own free **Google Colab T4 GPU** and plays or downloads them inside **one single APK**.
 
-No Termux. No external `mpv-android`. No `All files access` permission. No manual `mpv.conf` editing.
-
----
-
-## What's Inside One APK
-
-- **Embedded `libmpv` Video Player** (`dev.jdtech.mpv:libmpv:1.0.0`): Hardware-decoded playback with live-reloading yellow English subtitles, split `video + audio-file` support, brightness/volume swipe gestures, true immersive landscape fullscreen (hiding system status & navigation bars), in-player background **Save Video + Subtitles** button, Picture-in-Picture (PiP), and **Seek-Ahead** (jump forward to an untranslated timestamp and OpenScribe pauses with a spinner, tells Colab T4 to jump there, and auto-resumes when subtitles arrive).
-- **Embedded `yt-dlp` + `ffmpeg` + `aria2c`** (`youtubedl-android`): Resolves `<=720p` streams cleanly, unwraps `google.com/goto` and `youtube.com/shorts` links, saves `.mp4` + `.srt`/`.ass`/`.vtt` to `Downloads/OpenScribe/`, and automatically relays audio over your phone's Wi-Fi if YouTube ever blocks Colab's datacenter IP.
-- **Headless Google Colab T4 Client**: Implements the open-source `google-colab-cli` OAuth2 & Jupyter WebSocket protocol directly in Kotlin (`large-v3` on T4 CUDA, automatic dead-runtime recovery, warm T4 reuse menu).
+No Termux. No external `mpv-android`. No `All files access` permission. No developer backend servers.
 
 ---
 
-## Beginner Step-by-Step Guide: Get Your APK Without Installing Android Studio
+## How SUBCOLAB Enhances OpenScribe
 
-You do **not** need Android Studio or a powerful PC! GitHub's free cloud servers will compile the `.apk` for you automatically.
+**SUBCOLAB** is based on and inspired by the [OpenScribe](https://github.com/faisal-saddique/openscribe) Colab workflow by **Faisal Saddique** (MIT License), expanding it into a self-contained native Android experience:
 
-### Step 1: Upload This Project to a Free GitHub Account
-1. Create a free account at [github.com](https://github.com) if you don't have one yet.
-2. Click the **+** icon at the top right → **New repository**, name it `openscribe-android`, and click **Create repository**.
-3. Push (or upload) all files from this project folder to the `main` branch:
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial OpenScribe Android"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/openscribe-android.git
-   git push -u origin main
-   ```
-
-### Step 2: Download Your Compiled `.apk` from GitHub Actions
-1. Open your repository on GitHub and click the **Actions** tab near the top.
-2. Click on the running workflow **"Build OpenScribe Android APK"** (if it hasn't started, click **Run workflow**).
-3. Wait ~4–6 minutes for the green checkmark ✅.
-4. Scroll down to **Artifacts** and click **OpenScribe-Android-APKs** to download the `.zip` file.
-5. Unzip it on your phone (or PC and transfer it). Inside you'll find:
-   - `app-arm64-v8a-debug.apk` (recommended for almost all modern Android phones — smaller file)
-   - `app-universal-debug.apk` (works on every Android architecture)
-
-### Step 3: Install & Set Up on Your Android Phone
-1. Tap the `.apk` file in your phone's **Files** app and allow **"Install from this source"** when prompted.
-2. Open **OpenScribe** and allow **Notifications** when asked (this lets OpenScribe keep translating on the T4 GPU while you minimize the app).
-3. Tap the **Settings** gear icon (top right) → **Sign in with Google (Colab)**:
-   - Your browser opens Google Sign-In (`sdk.cloud.google.com`, matching `google-colab-cli`). Approve access, copy the authorization code shown on Google's page, and paste it into OpenScribe (your token is stored securely in Android's encrypted storage).
-   - *(Optional: You can also enter your own Desktop OAuth Client ID & Secret in Settings if you prefer one-tap `http://localhost` loopback sign-in.)*
-
-### Step 4: Test `YouTube → Share → OpenScribe`
-1. Open the YouTube app on any Japanese, Korean, Chinese, Spanish, etc. video.
-2. Tap **Share → OpenScribe** (or copy the link and paste it on OpenScribe's home screen).
-3. Choose:
-   - **Source Language**: `auto` (default, ~99 languages), quick chips (`zh`, `ko`, `ja`), or tap **All ~99 Languages** to search.
-   - **Mode**:
-     1. **Watch Live + Save** (live player + saves `<=720p` `.mp4` + `.srt`/`.ass`/`.vtt` to `Downloads/OpenScribe/`)
-     2. **Offline Pack Only** (translates & saves without opening the player)
-     3. **Watch Live Only** (streams live in the built-in player)
-4. Tap **Start T4 GPU Worker**. You can minimize the app — as soon as **4 English subtitle cues** arrive, OpenScribe automatically opens the built-in `libmpv` player (or posts a tap-to-watch notification) with live yellow English subtitles!
-5. When done, your Colab T4 stays warm so you can tap **[A] Run Previous** (smart cache skips Whisper and/or MP4 download) or **[B] New Link**, or tap **Stop T4 GPU** when finished.
+- **Smooth Live Streaming (`Watch Now`) with Embedded `libmpv`**: Streams `<=720p` video smoothly through a local OkHttp loopback proxy (`Range` + HLS M3U8 + split DASH audio) on a cinema-black player with live-reloading yellow English subtitles, brightness/volume swipe gestures, immersive landscape fullscreen, and Picture-in-Picture (PiP).
+- **Adaptive Audio-Only Chunking & Phone Wi-Fi Audio Relay**: Slices only lightweight audio chunks (`15s`–`60s` 16 kHz mono AAC) and streams them to your Colab T4 GPU so live video playback is never slowed down—even when YouTube blocks Colab datacenter IPs.
+- **Direct Share Integration (`YouTube → Share → SUBCOLAB`)**: Pick your source language (~99 Whisper languages) and tap **Watch Now** (smooth live stream that auto-opens once initial subtitles arrive) or **Download** (saves a full `<=720p` MP4 + `.srt`/`.ass`/`.vtt` quietly in the background).
+- **Seek-Ahead & Warm T4 Session Reuse**: Jump ahead to any untranslated timestamp to prioritize that section on Colab T4, and keep the T4 runtime warm between videos for faster startup.
+- **System / Light / Dark Theme**: Choose your preferred appearance in Settings while keeping the video player cinema-black with `#FFFF00` subtitles.
 
 ---
 
-## Optional: Importing `cookies.txt`
-If YouTube ever asks for login cookies on age-restricted or rate-limited videos:
-1. Export a Netscape `cookies.txt` file from a logged-in browser.
-2. In OpenScribe → **Settings** → **Import cookies.txt**, pick the file using Android's standard file picker.
-3. OpenScribe stores it privately inside its own app folder (`filesDir/cookies.txt` — no `All files access` needed) and uploads it to `/content/cookies.txt` on Colab automatically.
+## Quick Install (From GitHub Releases)
+
+1. Go to **[Releases](https://github.com/22-db-22/SUBCOLAB/releases)** and download **`SUBCOLAB-v1.0-arm64.apk`** (for Android 8.0+ 64-bit phones).
+2. Tap the downloaded `.apk` in your phone's **Files** app and allow **"Install from this source"** when prompted.
+3. Open **SUBCOLAB** and allow **Notifications** (keeps background translation running smoothly).
+   - *(Recommended)* Allow **"Display over other apps"** when prompted so **Watch Now** can pop open automatically over YouTube as soon as initial subtitles arrive.
+4. Tap the **Settings** gear icon (top right) → **Sign in with Google (Colab)** to complete the one-time OAuth2 sign-in.
+5. Open YouTube (or any supported video app), tap **Share → SUBCOLAB**, pick the spoken language (or leave `Auto`), and tap **Watch Now** or **Download**!
 
 ---
 
-## Building Locally (Optional)
-If you prefer building on your own computer with Android Studio / JDK 17:
+## Privacy & Google Colab Note
+
+- **Zero Developer Servers**: SUBCOLAB communicates directly between your phone and your own Google Colab runtime.
+- **Encrypted Local Tokens**: Your Google OAuth tokens stay strictly on your device inside Android's `EncryptedSharedPreferences`.
+- **Your Own Free Colab T4 Tier**: Whisper `large-v3` runs on your personal Google Colab GPU quota. Remember to tap **Stop T4 GPU Runtime** when you are done watching.
+- **Scoped Storage**: Downloads are saved cleanly via `MediaStore.Downloads` without requesting `MANAGE_EXTERNAL_STORAGE`.
+
+---
+
+## Optional: Building from Source
+
+This repository includes a ready-to-run GitHub Actions workflow (`.github/workflows/build-apk.yml`), or you can build locally with JDK 17 + Android SDK:
+
 ```bash
+git clone https://github.com/22-db-22/SUBCOLAB.git
+cd SUBCOLAB
 gradle testDebugUnitTest
 gradle assembleDebug
 ```
-The compiled APKs will appear in `app/build/outputs/apk/debug/`.
+
+---
+
+## License & Open Source Credits
+
+- **License**: Distributed under the **GNU General Public License v3.0** (`LICENSE`), required for public distribution with `youtubedl-android` (`yt-dlp` + `FFmpeg`) and `libmpv`.
+- **Upstream Attribution**: Based on & inspired by [OpenScribe](https://github.com/faisal-saddique/openscribe) by **Faisal Saddique** (MIT License — preserved in `NOTICE`).
+- **Powered By**: OpenAI Whisper, SYSTRAN `faster-whisper`, `google-colab-cli` protocol, `libmpv`, and `youtubedl-android` (`yt-dlp` + `FFmpeg`).
+- **Created by**: `writtenwithharmony@gmail.com`
