@@ -728,7 +728,7 @@ fun SettingsScreen(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "writtenwithharmony@gmail.com",
+                            text = "22-db-22",
                             color = OpenScribeColors.TextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
