@@ -79,13 +79,13 @@ class OpenScribeForegroundService : Service() {
                     AppLogger.w(TAG, "Progress notify failed", err)
                 }
             },
-            onPlayerReadyNotify = { titleSlug, cueCount, isComplete ->
+            onPlayerReadyNotify = { titleSlug, cueCount, isComplete, isLiveStream, useFullScreenIntent ->
                 runCatching {
                     if (isComplete) {
                         stopForeground(STOP_FOREGROUND_DETACH)
                         notificationManager.cancel(NOTIFICATION_PROGRESS_ID)
                     }
-                    postPlayerReadyNotification(titleSlug, cueCount, isComplete)
+                    postPlayerReadyNotification(titleSlug, cueCount, isComplete, isLiveStream, useFullScreenIntent)
                 }.onFailure { err ->
                     AppLogger.w(TAG, "PlayerReady notify failed", err)
                 }
@@ -195,7 +195,13 @@ class OpenScribeForegroundService : Service() {
         return builder.build()
     }
 
-    private fun postPlayerReadyNotification(titleSlug: String, cueCount: Int, isComplete: Boolean) {
+    private fun postPlayerReadyNotification(
+        titleSlug: String,
+        cueCount: Int,
+        isComplete: Boolean,
+        isLiveStream: Boolean,
+        useFullScreenIntent: Boolean,
+    ) {
         val openPlayerPending = PendingIntent.getActivity(
             this,
             3,
@@ -210,28 +216,31 @@ class OpenScribeForegroundService : Service() {
         )
 
         val cleanTitle = titleSlug.replace('_', ' ')
-        val titleText = if (isComplete) {
-            "Ready to watch ($cueCount cues)"
-        } else {
-            "Chunk 1 Ready — Watch Now ($cueCount cues)"
+        val titleText = when {
+            isComplete -> "Ready to watch ($cueCount cues)"
+            isLiveStream -> "Live Stream Ready — Watch Now ($cueCount cues)"
+            else -> "Ready to Watch ($cueCount cues)"
         }
-        val bodyText = if (isComplete) {
-            "$cleanTitle\nSaved to Downloads/OpenScribe/"
-        } else {
-            "$cleanTitle\nPlay from start while remaining chunks download in background"
+        val bodyText = when {
+            isComplete -> "$cleanTitle\nSaved to Downloads/OpenScribe/"
+            isLiveStream -> "$cleanTitle\nSmooth live stream ready while remaining subtitles translate"
+            else -> "$cleanTitle\nPlay from start while remaining chunks finish in background"
         }
-        val notification = NotificationCompat.Builder(this, OpenScribeApp.CHANNEL_READY_ID)
+        val builder = NotificationCompat.Builder(this, OpenScribeApp.CHANNEL_READY_ID)
             .setSmallIcon(R.drawable.ic_stat_openscribe)
             .setContentTitle(titleText)
             .setContentText(cleanTitle)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setCategory(if (useFullScreenIntent) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_RECOMMENDATION)
             .setAutoCancel(true)
             .setContentIntent(openPlayerPending)
             .addAction(0, "Watch Now", openPlayerPending)
             .addAction(0, "Later", laterPending)
-            .build()
-        notificationManager.notify(NOTIFICATION_READY_ID, notification)
+
+        if (useFullScreenIntent) {
+            builder.setFullScreenIntent(openPlayerPending, true)
+        }
+        notificationManager.notify(NOTIFICATION_READY_ID, builder.build())
     }
 }

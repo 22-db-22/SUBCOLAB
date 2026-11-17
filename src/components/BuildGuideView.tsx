@@ -20,8 +20,8 @@ const STEPS = [
   },
   {
     icon: Terminal,
-    title: '4. Share Any Video -> OpenScribe',
-    body: 'In YouTube, tap Share -> OpenScribe, pick Source Language (auto default) and Mode, and minimize. At 4 English cues, the built-in libmpv player opens automatically.',
+    title: '4. Share Any Video -> Watch Now or Download',
+    body: 'Allow "Display over other apps" once so Watch Now auto-opens over YouTube. Share a video -> pick Language -> tap Watch Now (smooth live stream + adaptive audio-only subs, auto-opens) or Download (full <=720p MP4 quietly in background).',
   },
 ];
 

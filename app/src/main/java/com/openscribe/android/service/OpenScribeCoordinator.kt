@@ -3,6 +3,9 @@ package com.openscribe.android.service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import com.openscribe.android.MainActivity
 import com.openscribe.android.OpenScribeApp
 import com.openscribe.android.colab.ColabClient
 import com.openscribe.android.colab.ColabRuntimeSession
@@ -77,14 +80,29 @@ class OpenScribeCoordinator(
 
     private var activeJob: Job? = null
     private val activeJobToken = AtomicLong(0L)
+    private var activeLiveStreamProxy: StreamExtractor.LoopbackMediaProxy? = null
+    private val liveProxyLock = Any()
     private var notificationCallback: ((title: String, body: String, ongoing: Boolean) -> Unit)? = null
-    private var playerReadyNotificationCallback: ((titleSlug: String, cueCount: Int, isComplete: Boolean) -> Unit)? = null
+    private var playerReadyNotificationCallback: ((titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean, useFullScreenIntent: Boolean) -> Unit)? = null
 
     @Volatile
     private var isPlayerScreenOpen = false
     private val deferredCleanupDirs = mutableListOf<File>()
     @Volatile
     private var promptedReadyForJobToken: Long = -1L
+
+    private fun replaceLiveStreamProxy(newProxy: StreamExtractor.LoopbackMediaProxy?) {
+        val old = synchronized(liveProxyLock) {
+            val prev = activeLiveStreamProxy
+            activeLiveStreamProxy = newProxy
+            prev
+        }
+        if (old != null && old !== newProxy) {
+            runCatching { old.close() }
+        }
+    }
+
+    private fun closeLiveStreamProxy() = replaceLiveStreamProxy(null)
 
     fun setPlayerScreenOpen(open: Boolean) {
         isPlayerScreenOpen = open
@@ -120,10 +138,28 @@ class OpenScribeCoordinator(
         }
     }
 
-    private fun maybeNotifyChunkPlayerReady(jobToken: Long) {
+    private fun launchPlayerFromBackground(): Boolean {
+        val canDrawOverlays = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            runCatching { Settings.canDrawOverlays(appContext) }.getOrDefault(false)
+        runCatching {
+            val openIntent = MainActivity.createOpenPlayerIntent(appContext).apply {
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+            appContext.startActivity(openIntent)
+            AppLogger.i(TAG, "Auto-launched MainActivity player from background (canDrawOverlays=$canDrawOverlays)")
+        }.onFailure { err ->
+            AppLogger.w(TAG, "Background startActivity blocked or failed (canDrawOverlays=$canDrawOverlays): ${err.message}")
+        }
+        return canDrawOverlays
+    }
+
+    private fun maybeNotifyPlayerReady(jobToken: Long) {
         if (!isJobCurrent(jobToken)) return
         val cur = _state.value
-        if (cur.playableChunks.isEmpty() || cur.cueCount < 1) return
+        if (cur.mode != WorkflowMode.WATCH_NOW) return
+        val hasMedia = (cur.isLiveStreaming && !cur.playableVideoSource.isNullOrBlank()) || cur.playableChunks.isNotEmpty()
+        if (!hasMedia || cur.cueCount < 1) return
+
         if (!cur.isPlayerReady) {
             val showInApp = OpenScribeApp.isAppInForeground && !isPlayerScreenOpen
             _state.update {
@@ -135,8 +171,15 @@ class OpenScribeCoordinator(
             if (promptedReadyForJobToken != jobToken) {
                 promptedReadyForJobToken = jobToken
                 if (!OpenScribeApp.isAppInForeground) {
+                    val launchedDirectly = launchPlayerFromBackground()
                     val slug = cur.titleSlug.ifBlank { "OpenScribe_Video" }
-                    playerReadyNotificationCallback?.invoke(slug, cur.cueCount, false)
+                    playerReadyNotificationCallback?.invoke(
+                        slug,
+                        cur.cueCount,
+                        false,
+                        cur.isLiveStreaming,
+                        !launchedDirectly,
+                    )
                 }
             }
         }
@@ -263,7 +306,7 @@ class OpenScribeCoordinator(
 
     fun attachServiceCallbacks(
         onProgressNotify: (title: String, body: String, ongoing: Boolean) -> Unit,
-        onPlayerReadyNotify: (titleSlug: String, cueCount: Int, isComplete: Boolean) -> Unit,
+        onPlayerReadyNotify: (titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean, useFullScreenIntent: Boolean) -> Unit,
     ) {
         notificationCallback = onProgressNotify
         playerReadyNotificationCallback = onPlayerReadyNotify
@@ -277,6 +320,7 @@ class OpenScribeCoordinator(
     fun startUrlJob(
         rawUrl: String,
         sourceLang: String,
+        workflowMode: WorkflowMode = WorkflowMode.WATCH_NOW,
         fromExternalShare: Boolean = false,
         reusePreviousCache: Boolean = false,
     ) {
@@ -292,17 +336,25 @@ class OpenScribeCoordinator(
             return
         }
 
-        AppLogger.i(TAG, "Starting URL download+translate job: url=$cleanUrl lang=$sourceLang externalShare=$fromExternalShare reuse=$reusePreviousCache")
+        val effectiveMode = if (workflowMode == WorkflowMode.LOCAL_VIDEO_SUBTITLES) {
+            WorkflowMode.DOWNLOAD_AND_TRANSLATE
+        } else {
+            workflowMode
+        }
+
+        AppLogger.i(TAG, "Starting URL job: mode=$effectiveMode url=$cleanUrl lang=$sourceLang externalShare=$fromExternalShare reuse=$reusePreviousCache")
         startForegroundServiceSafe()
 
         val jobToken = activeJobToken.incrementAndGet()
         activeJob?.cancel()
+        closeLiveStreamProxy()
         activeJob = scope.launch {
             runUrlPipeline(
                 jobToken = jobToken,
                 cleanUrl = cleanUrl,
                 rawUrl = rawUrl,
                 sourceLang = sourceLang.ifBlank { "auto" },
+                workflowMode = effectiveMode,
                 fromExternalShare = fromExternalShare,
                 reusePreviousCache = reusePreviousCache,
             )
@@ -420,11 +472,14 @@ class OpenScribeCoordinator(
             0
         }
 
+        closeLiveStreamProxy()
         _state.update {
             it.copy(
                 titleSlug = pack.titleSlug,
                 detectedOrigLang = pack.detectedLang,
                 playableVideoSource = videoSrc,
+                playableAudioSource = null,
+                isLiveStreaming = false,
                 playableChunks = emptyList(),
                 isChunkDownloadComplete = false,
                 totalDurationSec = 0.0,
@@ -490,6 +545,7 @@ class OpenScribeCoordinator(
             startUrlJob(
                 rawUrl = prev.normalizedUrl,
                 sourceLang = prev.sourceLang,
+                workflowMode = prev.mode,
                 fromExternalShare = false,
                 reusePreviousCache = true,
             )
@@ -510,6 +566,7 @@ class OpenScribeCoordinator(
             streamExtractor.cancelProcess("save_mp4")
             activeJob?.cancel()
             activeJob = null
+            closeLiveStreamProxy()
             _state.update {
                 it.copy(
                     phase = JobPhase.CANCELLED,
@@ -517,6 +574,8 @@ class OpenScribeCoordinator(
                     detailMessage = "Paste a new link or pick a saved video.",
                     translationProgressText = null,
                     activePackId = null,
+                    playableAudioSource = null,
+                    isLiveStreaming = false,
                     playableChunks = emptyList(),
                     isStitching = false,
                     isChunkDownloadComplete = false,
@@ -547,6 +606,7 @@ class OpenScribeCoordinator(
             streamExtractor.cancelProcess("save_mp4")
             activeJob?.cancel()
             activeJob = null
+            closeLiveStreamProxy()
             colabClient.unassignActiveRuntime()
             _state.update {
                 it.copy(
@@ -555,6 +615,8 @@ class OpenScribeCoordinator(
                     detailMessage = "",
                     translationProgressText = null,
                     activePackId = null,
+                    playableAudioSource = null,
+                    isLiveStreaming = false,
                     playableChunks = emptyList(),
                     isChunkDownloadComplete = false,
                     isStitching = false,
@@ -715,6 +777,7 @@ class OpenScribeCoordinator(
         cleanUrl: String,
         rawUrl: String,
         sourceLang: String,
+        workflowMode: WorkflowMode,
         fromExternalShare: Boolean,
         reusePreviousCache: Boolean,
     ) {
@@ -722,6 +785,7 @@ class OpenScribeCoordinator(
         val settings = settingsRepo.settings.value
         val prev = _state.value.previousJob
         val isYouTube = streamExtractor.isYouTubeUrl(cleanUrl)
+        val isWatchNow = workflowMode == WorkflowMode.WATCH_NOW
 
         val canReuseSubtitles = reusePreviousCache &&
             prev != null &&
@@ -754,7 +818,7 @@ class OpenScribeCoordinator(
             rawUrl = rawUrl,
             normalizedUrl = cleanUrl,
             sourceLang = sourceLang,
-            mode = WorkflowMode.DOWNLOAD_AND_TRANSLATE,
+            mode = workflowMode,
             titleSlug = initialSlug,
             subtitlesCompleted = canReuseSubtitles,
             savedMp4Path = prev?.savedMp4Path,
@@ -766,17 +830,18 @@ class OpenScribeCoordinator(
         _state.update {
             it.copy(
                 phase = JobPhase.BOOTING_GPU,
-                statusMessage = if (canReuseSubtitles) {
-                    "Subtitles cached — downloading <=720p MP4..."
-                } else {
-                    "Resolving video & booting Colab T4 GPU..."
+                statusMessage = when {
+                    canReuseSubtitles && isWatchNow -> "Subtitles cached — opening player..."
+                    canReuseSubtitles -> "Subtitles cached — downloading <=720p MP4..."
+                    isWatchNow -> "Resolving live stream & booting Colab T4 GPU..."
+                    else -> "Downloading <=720p MP4 & booting Colab T4 GPU..."
                 },
                 detailMessage = cleanUrl,
                 currentUrl = cleanUrl,
                 titleSlug = initialSlug,
                 sourceLang = sourceLang,
                 detectedOrigLang = if (canReuseSubtitles) it.detectedOrigLang else null,
-                mode = WorkflowMode.DOWNLOAD_AND_TRANSLATE,
+                mode = workflowMode,
                 cueCount = if (canReuseSubtitles) subtitleManager.cueCount() else 0,
                 origCueCount = if (canReuseSubtitles) subtitleManager.origCueCount() else 0,
                 completedChunks = if (canReuseSubtitles) subtitleManager.getCompletedChunks() else emptyList(),
@@ -792,22 +857,30 @@ class OpenScribeCoordinator(
                 activePackId = packId,
                 translationProgressText = if (canReuseSubtitles) {
                     "Reusing ${subtitleManager.cueCount()} cached cues"
+                } else if (isWatchNow) {
+                    "Booting T4 GPU & resolving smooth live stream..."
                 } else {
-                    "Booting T4 GPU & resolving stream in parallel..."
+                    "Booting T4 GPU & starting full MP4 download..."
                 },
                 liveSrtPath = liveSrtFile.absolutePath,
                 liveOrigSrtPath = liveOrigSrtFile.takeIf { f -> f.exists() && f.length() > 0L }?.absolutePath,
                 playableVideoSource = cachedPlayableSource,
-                savePackStatus = if (cachedPlayableSource != null) SavePackStatus.SAVED else SavePackStatus.SAVING,
+                playableAudioSource = null,
+                isLiveStreaming = false,
+                savePackStatus = if (cachedPlayableSource != null) SavePackStatus.SAVED else if (isWatchNow) SavePackStatus.IDLE else SavePackStatus.SAVING,
                 saveProgressPercent = if (cachedPlayableSource != null) 100 else 0,
-                saveStatusText = if (cachedPlayableSource != null) "Cached MP4 ready" else "Resolving stream...",
+                saveStatusText = if (cachedPlayableSource != null) "Cached MP4 ready" else if (isWatchNow) "Live stream mode (no video download)" else "Downloading full MP4...",
                 errorMessage = null,
                 previousJob = initialCache,
                 logTail = emptyList(),
             )
         }
         persistSession(wasCompletedOverride = canReuseSubtitles)
-        updateNotification("OpenScribe — Chunked Download & Translate", _state.value.statusMessage, ongoing = true)
+        updateNotification(
+            if (isWatchNow) "OpenScribe — Live Stream & Translate" else "OpenScribe — Downloading & Translating",
+            _state.value.statusMessage,
+            ongoing = true,
+        )
 
         val localTempMp4 = File(appContext.cacheDir, "openscribe_pack_$packId.mp4")
         val audioWorkDir = File(appContext.cacheDir, "relay_$packId").apply { mkdirs() }
@@ -847,15 +920,10 @@ class OpenScribeCoordinator(
                         }
                     } else null
 
-                // Non-YouTube links (e.g. Dailymotion) go directly to Colab-assisted chunked relay
-                // so we don't waste ~15-20s failing phone yt-dlp resolution first.
-                val preferDirectColabChunkStream = !isYouTube &&
-                    !canReuseSubtitles &&
-                    !settings.useCustomTunnel &&
-                    cachedPlayableSource == null
-
+                // In WATCH_NOW mode, resolve direct stream on phone (works for YouTube & many non-YouTube HLS/MP4 sites!)
+                // In DOWNLOAD_AND_TRANSLATE mode, skip stream chunking and download the full regular MP4 in background.
                 val resolvedStreamDeferred: Deferred<ResolvedStreamInfo?> = async {
-                    if (cachedPlayableSource == null && !preferDirectColabChunkStream) {
+                    if (isWatchNow && cachedPlayableSource == null) {
                         streamExtractor.resolveStreamInfo(
                             url = cleanUrl,
                             cookiesFile = settingsRepo.cookiesFile,
@@ -869,7 +937,7 @@ class OpenScribeCoordinator(
                 assertJobCurrent(jobToken)
 
                 var resolvedTitleHint: String? = resolvedStream?.title
-                if (resolvedTitleHint.isNullOrBlank() && resolvedStream != null) {
+                if (resolvedTitleHint.isNullOrBlank()) {
                     resolvedTitleHint = runCatching {
                         streamExtractor.fetchTitleHint(cleanUrl, settingsRepo.cookiesFile)
                     }.getOrNull()
@@ -938,18 +1006,37 @@ class OpenScribeCoordinator(
                     return currentPlayable
                 }
 
-                // Preferred fast path: chunked video download + chunk-by-chunk audio streaming so Chunk 1 opens quickly!
-                val canTryChunkedStreaming = !canReuseSubtitles &&
+                // WATCH_NOW fast smooth path: live-stream video via LoopbackMediaProxy into libmpv
+                // while downloading ONLY tiny adaptive audio-only chunks (15s-60s) for Colab T4 Whisper!
+                val canRunSmoothLiveStream = isWatchNow &&
+                    !canReuseSubtitles &&
                     !settings.useCustomTunnel &&
                     cachedPlayableSource == null &&
-                    resolvedStream != null &&
-                    (resolvedStream.durationSec <= 0.0 || resolvedStream.durationSec >= 25.0)
+                    resolvedStream != null
 
                 var tryColabChunkStream = false
                 var chunkStreamingFallbackNeeded = false
                 var finalVideoSource: String? = null
 
-                if (canTryChunkedStreaming && resolvedStream != null) {
+                if (canRunSmoothLiveStream && resolvedStream != null) {
+                    val liveProxy = streamExtractor.createLoopbackProxy(resolvedStream.httpHeaders)
+                    replaceLiveStreamProxy(liveProxy)
+                    val localLiveVideoUrl = liveProxy.proxiedUrl(resolvedStream.videoUrl)
+                    val localLiveAudioUrl = resolvedStream.audioUrl?.takeIf { it.isNotBlank() }
+                        ?.let { liveProxy.proxiedUrl(it) }
+                    val adaptiveAudioSec = StreamExtractor.computeAdaptiveAudioChunkSec(resolvedStream.durationSec)
+
+                    appendLog("Live stream ready (${resolvedStream.clientUsed}, ${adaptiveAudioSec}s adaptive audio chunks)")
+                    _state.update {
+                        it.copy(
+                            playableVideoSource = localLiveVideoUrl,
+                            playableAudioSource = localLiveAudioUrl,
+                            isLiveStreaming = true,
+                            chunkDownloadStatus = "Live stream ready • ${adaptiveAudioSec}s audio chunks",
+                            saveStatusText = "Live streaming (audio-only chunking)",
+                        )
+                    }
+
                     val workerScript = loadAssetText("colab_worker.py")
                     val remoteQueueDir = "/content/openscribe_queue_$packId"
                     val queueMutex = Mutex()
@@ -1004,16 +1091,11 @@ class OpenScribeCoordinator(
                     val chunkUploadJob = launch {
                         for (chunkInfo in pendingAudioChunks) {
                             if (!isJobCurrent(jobToken)) break
-                            val chunkAudioOut = File(audioWorkDir, "chunk_%03d.m4a".format(chunkInfo.index))
-                            val extractedAudio = LocalAudioExtractor.extractChunkAudio(
-                                appContext,
-                                File(chunkInfo.path),
-                                chunkAudioOut,
-                            )
-                            if (extractedAudio != null && extractedAudio.exists() && extractedAudio.length() > 0L) {
+                            val audioFile = File(chunkInfo.path)
+                            if (audioFile.exists() && audioFile.length() > 0L) {
                                 val readyName = "chunk_%03d.ready".format(chunkInfo.index)
-                                val readyJson = """{"index":${chunkInfo.index},"audio":"${extractedAudio.name}","offset_sec":${chunkInfo.startSec},"min_emit_sec":0.0}"""
-                                val item = QueuedChunkUpload(extractedAudio, readyName, readyJson)
+                                val readyJson = """{"index":${chunkInfo.index},"audio":"${audioFile.name}","offset_sec":${chunkInfo.startSec},"min_emit_sec":0.0}"""
+                                val item = QueuedChunkUpload(audioFile, readyName, readyJson)
                                 val sessionToUpload: ColabRuntimeSession?
                                 queueMutex.withLock {
                                     queuedUploads.add(item)
@@ -1028,7 +1110,7 @@ class OpenScribeCoordinator(
                                         colabClient.uploadFile(sessionToUpload, item.audioFile, "$remoteQueueDir/${item.audioFile.name}")
                                         colabClient.uploadText(sessionToUpload, item.readyJson, "$remoteQueueDir/${item.readyName}")
                                     }.onFailure { upErr ->
-                                        AppLogger.w(TAG, "Chunk ${chunkInfo.index + 1} upload failed (will resync on recover): ${upErr.message}")
+                                        AppLogger.w(TAG, "Audio chunk ${chunkInfo.index + 1} upload failed (will resync on recover): ${upErr.message}")
                                     }
                                 }
                             }
@@ -1051,7 +1133,7 @@ class OpenScribeCoordinator(
                                 onStatus = { msg ->
                                     if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
                                     _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
-                                    updateNotification("OpenScribe — T4 GPU", msg, ongoing = true)
+                                    updateNotification("OpenScribe — Live T4 GPU", msg, ongoing = true)
                                 },
                                 onBeforeExecute = { session ->
                                     syncQueueToSession(session)
@@ -1070,55 +1152,40 @@ class OpenScribeCoordinator(
                             workerExecutionError = err
                             pendingAudioChunks.close()
                             chunkUploadJob.cancel()
-                            streamExtractor.cancelProcess("save_mp4")
+                            streamExtractor.cancelProcess("relay_audio")
                             throw err
                         }
                     }
 
-                    val chunkDownloadResult = runCatching {
-                        val downloadedChunks = streamExtractor.downloadVideoInChunks(
+                    val audioChunkResult = runCatching {
+                        streamExtractor.downloadAudioInChunks(
                             context = appContext,
                             streamInfo = resolvedStream,
-                            workDir = chunksDir,
-                            chunkDurationSec = 20,
-                            processId = "save_mp4",
-                            onProgress = { progress, _ ->
+                            workDir = audioWorkDir,
+                            existingProxy = liveProxy,
+                            chunkDurationSec = adaptiveAudioSec,
+                            processId = "relay_audio",
+                            onProgress = { progress, label ->
                                 val pct = progress.toInt().coerceIn(0, 99)
-                                if (!isJobCurrent(jobToken)) return@downloadVideoInChunks
+                                if (!isJobCurrent(jobToken)) return@downloadAudioInChunks
                                 _state.update {
                                     it.copy(
-                                        savePackStatus = SavePackStatus.SAVING,
                                         saveProgressPercent = pct,
-                                        saveStatusText = "Streaming video chunks ($pct%)...",
+                                        chunkDownloadStatus = label,
                                     )
                                 }
                             },
-                            onChunkReady = { chunkInfo ->
-                                if (!isJobCurrent(jobToken)) return@downloadVideoInChunks
+                            onAudioChunkReady = { chunkInfo ->
+                                if (!isJobCurrent(jobToken)) return@downloadAudioInChunks
                                 chunk0Produced = true
-                                _state.update { cur ->
-                                    cur.copy(
-                                        playableChunks = cur.playableChunks + chunkInfo,
-                                        chunkDownloadStatus = "Chunk ${chunkInfo.index + 1} (${chunkInfo.endSec.toInt()}s) ready",
-                                    )
-                                }
-                                maybeNotifyChunkPlayerReady(jobToken)
                                 pendingAudioChunks.trySend(chunkInfo)
                             },
                         )
-                        downloadedChunks
                     }
 
                     pendingAudioChunks.close()
 
-                    if (chunkDownloadResult.isSuccess) {
-                        val allChunks = chunkDownloadResult.getOrThrow()
-                        _state.update {
-                            it.copy(
-                                isChunkDownloadComplete = true,
-                                saveProgressPercent = 100,
-                            )
-                        }
+                    if (audioChunkResult.isSuccess) {
                         chunkUploadJob.join()
                         queueMutex.withLock {
                             allChunksQueued = true
@@ -1128,40 +1195,21 @@ class OpenScribeCoordinator(
                             }
                         }
 
-                        // Background stitch chunks into final MP4 while Colab finishes remaining chunks!
-                        val stitchDeferred = async {
-                            _state.update {
-                                it.copy(
-                                    isStitching = true,
-                                    saveStatusText = "Stitching ${allChunks.size} chunks into MP4...",
-                                )
-                            }
-                            val stitched = streamExtractor.stitchChunksToMp4(
-                                context = appContext,
-                                chunks = allChunks,
-                                outputMp4 = localTempMp4,
-                                canUseMpegTs = resolvedStream.canUseMpegTs,
-                            )
-                            val saved = saveCompletedMp4ToPack(stitched)
-                            chunksDirScheduledForDeferredDelete = true
-                            scheduleChunksDirCleanup(chunksDir)
-                            saved
-                        }
-
                         workerJob.join()
                         workerExecutionError?.let { throw it }
                         if (subtitleManager.cueCount() <= 0) {
                             throw IllegalStateException("Colab Whisper returned 0 English subtitle cues.")
                         }
                         subtitlesFinishedOk = true
-                        finalVideoSource = stitchDeferred.await()
+                        finalVideoSource = localLiveVideoUrl
                     } else {
                         chunkUploadJob.cancel()
-                        val dlErr = chunkDownloadResult.exceptionOrNull()!!
+                        val dlErr = audioChunkResult.exceptionOrNull()!!
                         if (dlErr is CancellationException) throw dlErr
                         workerExecutionError?.let { throw it }
                         if (!chunk0Produced) {
                             workerJob.cancel()
+                            closeLiveStreamProxy()
                             runCatching {
                                 colabClient.sendAbortSignal(
                                     useCustomTunnel = false,
@@ -1171,18 +1219,17 @@ class OpenScribeCoordinator(
                             }
                             _state.update {
                                 it.copy(
-                                    playableChunks = emptyList(),
-                                    isChunkDownloadComplete = false,
+                                    playableVideoSource = cachedPlayableSource,
+                                    playableAudioSource = null,
+                                    isLiveStreaming = false,
                                     chunkDownloadStatus = null,
-                                    isStitching = false,
                                 )
                             }
-                            runCatching { chunksDir.deleteRecursively() }
                             if (!isYouTube && !settings.useCustomTunnel) {
-                                AppLogger.w(TAG, "Phone chunked stream failed before chunk 0 (${dlErr.message}); switching to Colab-assisted chunked streaming.")
+                                AppLogger.w(TAG, "Live audio chunking failed before chunk 0 (${dlErr.message}); switching to Colab-assisted chunked relay.")
                                 tryColabChunkStream = true
                             } else {
-                                AppLogger.w(TAG, "Chunked stream failed before chunk 0 (${dlErr.message}); falling back to standard MP4 download.")
+                                AppLogger.w(TAG, "Live audio chunking failed before chunk 0 (${dlErr.message}); falling back to standard MP4 download.")
                                 chunkStreamingFallbackNeeded = true
                             }
                         } else {
@@ -1196,14 +1243,16 @@ class OpenScribeCoordinator(
                             throw dlErr
                         }
                     }
-                } else if (!canReuseSubtitles && !settings.useCustomTunnel && cachedPlayableSource == null && !isYouTube) {
+                } else if (isWatchNow && !canReuseSubtitles && !settings.useCustomTunnel && cachedPlayableSource == null && !isYouTube) {
+                    // Phone resolve failed on geo-blocked/Cloudflare non-YouTube link: fall back to Colab chunk relay
                     tryColabChunkStream = true
                 } else {
+                    // DOWNLOAD_AND_TRANSLATE (full regular MP4 download) OR cached reuse OR custom tunnel
                     chunkStreamingFallbackNeeded = true
                 }
 
                 if (tryColabChunkStream) {
-                    appendLog("Starting Colab chunked relay (20s video chunks + parallel Whisper)...")
+                    appendLog("Starting Colab chunked relay (45s smoother chunks + parallel Whisper)...")
                     val workerScript = loadAssetText("colab_worker.py")
                     val colabStreamEnv = linkedMapOf(
                         "OS_VIDEO_URL" to cleanUrl,
@@ -1218,7 +1267,7 @@ class OpenScribeCoordinator(
                         "OS_STREAMING_QUEUE" to "False",
                         "OS_COLAB_CHUNK_STREAM" to "True",
                         "OS_MAX_HEIGHT" to "720",
-                        "OS_CHUNK_SEC" to "20",
+                        "OS_CHUNK_SEC" to "45",
                         "OS_JOB_ID" to packId,
                     )
                     resolvedTitleHint?.takeIf { it.isNotBlank() }?.let {
@@ -1295,7 +1344,7 @@ class OpenScribeCoordinator(
                                         },
                                     )
                                 }
-                                maybeNotifyChunkPlayerReady(jobToken)
+                                maybeNotifyPlayerReady(jobToken)
                             }
                             if (expectedRemoteChunks.get() > 0 && isJobCurrent(jobToken)) {
                                 _state.update {
@@ -1666,13 +1715,18 @@ class OpenScribeCoordinator(
                 val shouldPromptOrNotify = promptedReadyForJobToken != jobToken
                 promptedReadyForJobToken = jobToken
                 val showDialogInApp = shouldPromptOrNotify && (!fromExternalShare || OpenScribeApp.isAppInForeground)
+                val finishedLiveStream = _state.value.isLiveStreaming && finalVideoSource?.startsWith("http") == true
 
                 _state.update {
                     it.copy(
                         phase = JobPhase.COMPLETED,
-                        statusMessage = "Ready — Video & ${subBundle.enCueCount} EN" +
-                            (if (subBundle.origCueCount > 0) " + ${subBundle.origCueCount} orig" else "") +
-                            " cues saved",
+                        statusMessage = if (finishedLiveStream) {
+                            "Live Stream + ${subBundle.enCueCount} EN cues ready (subtitles saved)"
+                        } else {
+                            "Ready — Video & ${subBundle.enCueCount} EN" +
+                                (if (subBundle.origCueCount > 0) " + ${subBundle.origCueCount} orig" else "") +
+                                " cues saved"
+                        },
                         translationProgressText = if (subBundle.origCueCount > 0) {
                             "${subBundle.enCueCount} EN • ${subBundle.origCueCount} orig cues saved"
                         } else {
@@ -1686,12 +1740,16 @@ class OpenScribeCoordinator(
                         isPlayerReady = true,
                         isReadyPromptVisible = showDialogInApp,
                         isStitching = false,
-                        chunkDownloadStatus = null,
+                        chunkDownloadStatus = if (finishedLiveStream) "Live stream • All subtitles ready" else null,
                         playableVideoSource = resolvedFinalVideo,
                         activePackId = null,
                         savePackStatus = SavePackStatus.SAVED,
                         saveProgressPercent = 100,
-                        saveStatusText = "Saved to Downloads/OpenScribe/$folder/",
+                        saveStatusText = if (finishedLiveStream) {
+                            "Subtitles saved to Downloads/OpenScribe/$folder/ (tap Video in Downloads to save MP4)"
+                        } else {
+                            "Saved to Downloads/OpenScribe/$folder/"
+                        },
                         previousJob = it.previousJob?.copy(
                             titleSlug = slug,
                             subtitlesCompleted = true,
@@ -1702,13 +1760,22 @@ class OpenScribeCoordinator(
                     )
                 }
                 persistSession(wasCompletedOverride = true)
-                AppLogger.i(TAG, "Pack complete: $folder (EN=${subBundle.enCueCount}, Orig=${subBundle.origCueCount})")
+                AppLogger.i(TAG, "Pack complete: $folder (EN=${subBundle.enCueCount}, Orig=${subBundle.origCueCount}, live=$finishedLiveStream)")
                 if (shouldPromptOrNotify) {
-                    playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true)
+                    if (isWatchNow && !OpenScribeApp.isAppInForeground) {
+                        val launched = launchPlayerFromBackground()
+                        playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true, finishedLiveStream, !launched)
+                    } else {
+                        playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true, finishedLiveStream, false)
+                    }
                 } else {
                     updateNotification(
                         "OpenScribe — Saved ($folder)",
-                        "Video & ${subBundle.enCueCount} EN cues saved to Downloads/OpenScribe/$folder/",
+                        if (finishedLiveStream) {
+                            "All ${subBundle.enCueCount} EN cues saved to Downloads/OpenScribe/$folder/"
+                        } else {
+                            "Video & ${subBundle.enCueCount} EN cues saved to Downloads/OpenScribe/$folder/"
+                        },
                         ongoing = false,
                     )
                 }
@@ -1946,7 +2013,7 @@ class OpenScribeCoordinator(
             }
             persistSession(wasCompletedOverride = true)
             AppLogger.i(TAG, "Local video subtitle job completed (${subBundle.enCueCount} EN cues)")
-            playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true)
+            playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true, false, false)
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
@@ -2546,7 +2613,7 @@ class OpenScribeCoordinator(
                         previousJob = it.previousJob?.copy(subtitlesCompleted = false),
                     )
                 }
-                maybeNotifyChunkPlayerReady(jobToken)
+                maybeNotifyPlayerReady(jobToken)
                 if (event.totalCount == 4 || event.totalCount % 10 == 0) {
                     persistSession()
                 }

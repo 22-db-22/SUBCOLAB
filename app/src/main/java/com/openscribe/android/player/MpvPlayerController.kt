@@ -79,11 +79,13 @@ class MpvPlayerController(private val context: Context) {
     private var pendingOrigCueCount: Int = 0
     private var desiredSubMode: String = "en" // "en" | "orig" | "off"
 
-    // Chunked streaming state
+    // Chunked & live streaming state
     private var chunkList: List<VideoChunkInfo> = emptyList()
     private var currentChunkIndex: Int = -1
     private var totalDurationHintSec: Double = 0.0
     private var stitchedVideoSource: String? = null
+    private var liveAudioSource: String? = null
+    private var attachedAudioSource: String? = null
     private var allChunksDownloaded: Boolean = false
     private var isPlayingStitched: Boolean = false
     private var waitingForNextChunkIndex: Int? = null
@@ -194,6 +196,16 @@ class MpvPlayerController(private val context: Context) {
                             }
                         } else {
                             runCatching { MPVLib.setPropertyDouble("sub-delay", 0.0) }
+                            val extAudio = liveAudioSource
+                            if (!extAudio.isNullOrBlank() && attachedAudioSource != extAudio) {
+                                runCatching {
+                                    MPVLib.command(arrayOf("audio-add", extAudio, "select"))
+                                    attachedAudioSource = extAudio
+                                    AppLogger.i(TAG, "Attached separate live DASH audio stream")
+                                }.onFailure { err ->
+                                    AppLogger.w(TAG, "audio-add failed for live stream", err)
+                                }
+                            }
                         }
                         _uiState.update { it.copy(isFileLoaded = true, bufferingMessage = null, error = null) }
                         applyPendingSubtitlesInternal()
@@ -328,8 +340,12 @@ class MpvPlayerController(private val context: Context) {
             setOpt("ytdl", "no")
             setOpt("keep-open", "yes")
             setOpt("cache", "yes")
-            setOpt("demuxer-max-bytes", "32MiB")
-            setOpt("demuxer-max-back-bytes", "16MiB")
+            setOpt("cache-pause-wait", "1")
+            setOpt("demuxer-max-bytes", "64MiB")
+            setOpt("demuxer-max-back-bytes", "24MiB")
+            setOpt("demuxer-readahead-secs", "30")
+            setOpt("gapless-audio", "yes")
+            setOpt("prefetch-playlist", "yes")
             setOpt("sub-auto", "no")
             setOpt("sub-fix-timing", "yes")
 
@@ -459,11 +475,12 @@ class MpvPlayerController(private val context: Context) {
     }
 
     /**
-     * Coordinates both full-file playback (local/stitched/cached) and live chunk-by-chunk playback
-     * while the rest of the video is still downloading and stitching in the background.
+     * Coordinates full-file playback (local/stitched/cached), smooth live HTTP/HLS streaming
+     * (with optional separate DASH audio stream), and fallback chunk-by-chunk playback.
      */
     fun syncMediaState(
         stitchedSource: String?,
+        liveAudioUrl: String? = null,
         chunks: List<VideoChunkInfo>,
         totalDurationSec: Double,
         chunksDownloadComplete: Boolean = false,
@@ -471,9 +488,23 @@ class MpvPlayerController(private val context: Context) {
         synchronized(mpvLock) {
             if (!isCreated || activeController !== this) return
             stitchedVideoSource = stitchedSource
+            liveAudioSource = liveAudioUrl
             allChunksDownloaded = chunksDownloadComplete || !stitchedSource.isNullOrBlank()
             if (totalDurationSec > 0.0) {
                 totalDurationHintSec = maxOf(totalDurationHintSec, totalDurationSec)
+            }
+
+            // Prefer smooth live stream or full local file whenever available (zero chunk cuts!)
+            if (!stitchedSource.isNullOrBlank() && (stitchedSource.startsWith("http") || chunks.isEmpty())) {
+                chunkList = emptyList()
+                currentChunkIndex = -1
+                isPlayingStitched = true
+                waitingForNextChunkIndex = null
+                if (totalDurationHintSec > 0.0 && _uiState.value.durationSec < totalDurationHintSec) {
+                    _uiState.update { it.copy(durationSec = totalDurationHintSec) }
+                }
+                loadMediaInternalLocked(stitchedSource)
+                return
             }
 
             val validChunks = chunks.filter { File(it.path).let { f -> f.exists() && f.length() > 0L } }
@@ -511,6 +542,8 @@ class MpvPlayerController(private val context: Context) {
             if (!isCreated || activeController !== this) return
             chunkList = emptyList()
             currentChunkIndex = -1
+            liveAudioSource = null
+            attachedAudioSource = null
             isPlayingStitched = true
             waitingForNextChunkIndex = null
             loadMediaInternalLocked(videoSource)
@@ -549,6 +582,7 @@ class MpvPlayerController(private val context: Context) {
         loadRequested = true
         hwdecNoRetried = false
         currentSubLoadedPath = null
+        attachedAudioSource = null
         lastMpvErrorLog = null
 
         closeActivePfdLocked()
@@ -810,6 +844,8 @@ class MpvPlayerController(private val context: Context) {
         currentChunkIndex = -1
         totalDurationHintSec = 0.0
         stitchedVideoSource = null
+        liveAudioSource = null
+        attachedAudioSource = null
         allChunksDownloaded = false
         isPlayingStitched = false
         waitingForNextChunkIndex = null

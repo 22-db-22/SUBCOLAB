@@ -62,14 +62,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedLang.value = langCodeOrName.ifBlank { "auto" }
     }
 
-    fun startTranslationJob() {
+    fun startTranslationJob(workflowMode: WorkflowMode = WorkflowMode.WATCH_NOW) {
         coordinator.startUrlJob(
             rawUrl = _urlInput.value,
             sourceLang = _selectedLang.value,
+            workflowMode = workflowMode,
             fromExternalShare = false,
             reusePreviousCache = false,
         )
     }
+
+    fun startWatchNowJob() = startTranslationJob(WorkflowMode.WATCH_NOW)
+
+    fun startDownloadJob() = startTranslationJob(WorkflowMode.DOWNLOAD_AND_TRANSLATE)
 
     fun selectLocalVideo(uri: Uri) {
         _selectedLocalVideoUri.value = uri.toString()

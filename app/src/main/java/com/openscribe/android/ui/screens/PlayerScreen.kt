@@ -147,10 +147,11 @@ fun PlayerScreen(
         }
     }
 
-    // Load offline MP4, chunked stream, or local device content:// URI whenever ready
+    // Load offline MP4, smooth live stream (+ optional DASH audio), chunked stream, or local device content:// URI
     LaunchedEffect(
         playerState.isInitialized,
         jobState.playableVideoSource,
+        jobState.playableAudioSource,
         jobState.playableChunks.size,
         jobState.isChunkDownloadComplete,
         jobState.totalDurationSec,
@@ -158,6 +159,7 @@ fun PlayerScreen(
         if (playerState.isInitialized && (!jobState.playableVideoSource.isNullOrBlank() || jobState.playableChunks.isNotEmpty())) {
             controller.syncMediaState(
                 stitchedSource = jobState.playableVideoSource,
+                liveAudioUrl = jobState.playableAudioSource,
                 chunks = jobState.playableChunks,
                 totalDurationSec = jobState.totalDurationSec,
                 chunksDownloadComplete = jobState.isChunkDownloadComplete,
@@ -457,6 +459,7 @@ fun PlayerScreen(
                             else -> "EN subtitles (${jobState.cueCount} cues)"
                         }
                         val streamSuffix = when {
+                            jobState.isLiveStreaming -> " • Live Stream"
                             jobState.isStitching -> " • Stitching MP4"
                             jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null ->
                                 " • ${jobState.playableChunks.size} chunks"

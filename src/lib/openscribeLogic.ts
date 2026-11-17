@@ -1,4 +1,4 @@
-export type WorkflowModeId = 'WATCH_LIVE_AND_SAVE' | 'OFFLINE_PACK_ONLY' | 'WATCH_LIVE_ONLY';
+export type WorkflowModeId = 'WATCH_NOW' | 'DOWNLOAD_AND_TRANSLATE';
 
 export interface WorkflowModeInfo {
   id: WorkflowModeId;
@@ -10,25 +10,18 @@ export interface WorkflowModeInfo {
 
 export const WORKFLOW_MODES: WorkflowModeInfo[] = [
   {
-    id: 'WATCH_LIVE_AND_SAVE',
-    title: 'Watch Live + Save',
-    subtitle: 'Live libmpv player + save <=720p MP4 & SRT/ASS/VTT to Downloads/OpenScribe/',
-    opensPlayer: true,
-    savesOfflinePack: true,
-  },
-  {
-    id: 'OFFLINE_PACK_ONLY',
-    title: 'Offline Pack Only',
-    subtitle: 'Translate on Colab T4 & save video + subtitles without opening player',
-    opensPlayer: false,
-    savesOfflinePack: true,
-  },
-  {
-    id: 'WATCH_LIVE_ONLY',
-    title: 'Watch Live Only',
-    subtitle: 'Stream video in built-in libmpv with live yellow English subtitles',
+    id: 'WATCH_NOW',
+    title: 'Watch Now (Live Stream)',
+    subtitle: 'Smooth live video via loopback proxy + adaptive audio-only subtitle chunks, auto-opens over other apps',
     opensPlayer: true,
     savesOfflinePack: false,
+  },
+  {
+    id: 'DOWNLOAD_AND_TRANSLATE',
+    title: 'Download Full MP4',
+    subtitle: 'Save full <=720p MP4 + English & original subtitles quietly in background',
+    opensPlayer: false,
+    savesOfflinePack: true,
   },
 ];
 
@@ -124,4 +117,12 @@ export function formatMmSs(seconds: number): string {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export function computeAdaptiveAudioChunkSec(durationSec: number): number {
+  if (durationSec <= 0) return 20;
+  if (durationSec <= 180) return 15;
+  if (durationSec <= 900) return 25;
+  if (durationSec <= 2700) return 40;
+  return 60;
 }

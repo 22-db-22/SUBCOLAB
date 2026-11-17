@@ -1,6 +1,9 @@
 package com.openscribe.android.ui.screens
 
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -53,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -84,7 +88,10 @@ fun SettingsScreen(
     onCopyAllLogs: () -> String = { "" },
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val canDrawOverlays = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+        runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
     var manualCodeInput by remember { mutableStateOf("") }
     var cookiesStatusMsg by remember { mutableStateOf<String?>(null) }
     var tunnelUrlInput by remember(settings.customTunnelUrl) { mutableStateOf(settings.customTunnelUrl) }
@@ -495,6 +502,53 @@ fun SettingsScreen(
                                 unfocusedTextColor = OpenScribeColors.TextPrimary,
                             ),
                         )
+                    }
+                }
+            }
+
+            // 4b. Auto-Open Player Over Other Apps (Android 10+ BAL exemption)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
+                border = BorderStroke(
+                    1.dp,
+                    if (canDrawOverlays) OpenScribeColors.SuccessGreen.copy(alpha = 0.5f)
+                    else OpenScribeColors.SubtitleYellow.copy(alpha = 0.5f),
+                ),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("Auto-Open Player Over Other Apps", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = if (canDrawOverlays) {
+                            "Enabled — when you share a link and tap Watch Now, OpenScribe will automatically pop open over YouTube or any other app as soon as initial subtitles are ready."
+                        } else {
+                            "Allow 'Display over other apps' so Watch Now can automatically open the video player over YouTube/browsers when initial subtitles arrive."
+                        },
+                        color = if (canDrawOverlays) OpenScribeColors.SuccessGreen else OpenScribeColors.TextSecondary,
+                        fontSize = 12.sp,
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        OutlinedButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    context.startActivity(intent)
+                                }
+                            },
+                            border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                        ) {
+                            Text(
+                                text = if (canDrawOverlays) "Manage Overlay Permission" else "Enable Auto-Open Permission",
+                                color = OpenScribeColors.GpuCyan,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }

@@ -50,7 +50,7 @@ export function PhonePreview() {
   const [selectedLang, setSelectedLang] = useState('auto');
   const [langQuery, setLangQuery] = useState('');
   const [showLangSearch, setShowLangSearch] = useState(false);
-  const [selectedMode, setSelectedMode] = useState<WorkflowModeId>('WATCH_LIVE_AND_SAVE');
+  const [selectedMode, setSelectedMode] = useState<WorkflowModeId>('WATCH_NOW');
   const [screen, setScreen] = useState<SimScreen>('home');
 
   const [isRunning, setIsRunning] = useState(false);
@@ -99,9 +99,15 @@ export function PhonePreview() {
     setIsGpuWarm(true);
     setStatusLine(isGpuWarm ? 'Reusing warm Colab T4 GPU...' : 'Booting T4 GPU...');
 
-    run(600, () => setStatusLine('Loading faster-whisper large-v3 (CUDA float16)...'));
+    run(600, () =>
+      setStatusLine(
+        selectedMode === 'WATCH_NOW'
+          ? 'Live stream proxy ready • slicing 15s adaptive audio chunks...'
+          : 'Downloading full <=720p MP4 & extracting audio in background...',
+      ),
+    );
     run(1100, () => {
-      setStatusLine('Translating speech -> English (1/4 cues)...');
+      setStatusLine('Translating audio chunk 1 -> English...');
       setCueCount(1);
     });
     run(1450, () => setCueCount(2));
@@ -109,20 +115,22 @@ export function PhonePreview() {
     run(2150, () => {
       setCueCount(4);
       setCompletedChunks([{ startSec: 0, endSec: 45 }]);
-      setStatusLine('4 cues ready — opening player!');
       const modeObj = WORKFLOW_MODES.find((m) => m.id === selectedMode);
       if (modeObj?.opensPlayer) {
+        setStatusLine('Initial subs ready — auto-opening Live Stream player!');
         setScreen('player');
         setPlayTimeSec(2);
         setIsPaused(false);
+      } else {
+        setStatusLine('Background Download: 4 cues ready, finishing full MP4...');
       }
     });
     run(3200, () => {
       setCueCount(5);
       setStatusLine(
-        selectedMode === 'WATCH_LIVE_ONLY'
-          ? 'Completed (5 cues) — T4 GPU warm'
-          : 'Saved MP4 + SRT/ASS/VTT to Downloads/OpenScribe/',
+        selectedMode === 'WATCH_NOW'
+          ? 'Live Stream + all 5 cues ready (subtitles saved)'
+          : 'Saved full MP4 + SRT/ASS/VTT to Downloads/OpenScribe/',
       );
       setHasPreviousCache(true);
       setIsRunning(false);
@@ -281,7 +289,7 @@ export function PhonePreview() {
                   Back
                 </button>
                 <span className="truncate text-[11px] font-medium text-amber-400">
-                  {cueCount} cues • {bgSaveState === 'saved' ? 'Saved' : isFullscreen ? 'Immersive' : 'libmpv'}
+                  {cueCount} cues • {selectedMode === 'WATCH_NOW' ? 'Live Stream' : bgSaveState === 'saved' ? 'Saved' : isFullscreen ? 'Immersive' : 'libmpv'}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
@@ -503,35 +511,35 @@ export function PhonePreview() {
                     </div>
                   )}
 
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-bold text-slate-100">Mode</span>
-                    {WORKFLOW_MODES.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setSelectedMode(m.id)}
-                        className={`block w-full rounded-lg border p-2 text-left ${
-                          selectedMode === m.id
-                            ? 'border-amber-400 bg-amber-400/10'
-                            : 'border-slate-800 bg-[#0B0F17]'
-                        }`}
-                      >
-                        <p className="text-xs font-semibold text-slate-100">{m.title}</p>
-                        <p className="text-[10px] text-slate-400">{m.subtitle}</p>
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMode('DOWNLOAD_AND_TRANSLATE');
+                        setScreen('home');
+                        setIsRunning(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-sky-500/50 bg-sky-500/10 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedMode('WATCH_NOW');
+                        setScreen('home');
+                        setIsRunning(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-400 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-300"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Watch Now
+                    </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setScreen('home');
-                      setIsRunning(true);
-                    }}
-                    className="w-full rounded-xl bg-amber-400 py-2 text-xs font-bold text-slate-950"
-                  >
-                    Start T4 GPU Worker
-                  </button>
+                  <p className="text-[10px] leading-relaxed text-slate-400">
+                    Watch Now streams smoothly &amp; auto-opens over other apps once initial subs arrive. Download saves full MP4 quietly in background.
+                  </p>
                 </div>
               )}
 
@@ -549,7 +557,7 @@ export function PhonePreview() {
                   <p className="text-[11px] text-slate-400">
                     {cueCount} cues • {completedChunks.length} chunk(s) • lang={selectedLang}
                   </p>
-                  {cueCount >= 4 && selectedMode !== 'OFFLINE_PACK_ONLY' && (
+                  {cueCount >= 4 && (
                     <button
                       type="button"
                       onClick={() => setScreen('player')}

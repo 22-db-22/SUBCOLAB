@@ -99,18 +99,22 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Auto-open PlayerScreen once Chunk 1 + first subtitles arrive during an active streaming job
+                // Auto-open PlayerScreen once initial subtitles arrive in Watch Now (live stream or fallback chunks)
                 LaunchedEffect(
                     jobState.isPlayerReady,
+                    jobState.isLiveStreaming,
+                    jobState.playableVideoSource,
                     jobState.playableChunks.size,
                     jobState.cueCount,
+                    jobState.mode,
                     jobState.activePackId,
                     jobState.currentUrl,
                 ) {
                     val activeKey = "${jobState.activePackId ?: ""}|${jobState.currentUrl}"
                     if (!jobState.isPlayerReady) {
                         autoOpenedJobKey = null
-                    } else if (jobState.playableChunks.isNotEmpty() &&
+                    } else if (jobState.mode == com.openscribe.android.model.WorkflowMode.WATCH_NOW &&
+                        hasPlayableMedia &&
                         jobState.cueCount > 0 &&
                         currentRoute == "home" &&
                         autoOpenedJobKey != activeKey
@@ -138,7 +142,8 @@ class MainActivity : ComponentActivity() {
                             lastCrashText = lastCrashText,
                             onUrlChange = viewModel::setUrlInput,
                             onSelectLang = viewModel::setSelectedLang,
-                            onStartUrlJob = viewModel::startTranslationJob,
+                            onStartWatchNowJob = viewModel::startWatchNowJob,
+                            onStartDownloadJob = viewModel::startDownloadJob,
                             onPickLocalVideo = viewModel::selectLocalVideo,
                             onClearLocalVideo = viewModel::clearSelectedLocalVideo,
                             onStartLocalVideoJob = viewModel::startLocalVideoJob,
@@ -226,7 +231,7 @@ class MainActivity : ComponentActivity() {
                     hasPlayableMedia &&
                     currentRoute != "player"
                 ) {
-                    val isStreamingLive = jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null
+                    val isStreamingLive = jobState.isLiveStreaming || (jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null)
                     AlertDialog(
                         onDismissRequest = {
                             viewModel.dismissReadyPrompt()
@@ -237,15 +242,18 @@ class MainActivity : ComponentActivity() {
                         textContentColor = OpenScribeColors.TextSecondary,
                         title = {
                             Text(
-                                text = if (isStreamingLive) "Chunk 1 Ready to Watch" else "Ready to Watch",
+                                text = if (jobState.isLiveStreaming) "Live Stream Ready" else if (isStreamingLive) "Ready to Watch" else "Download Ready",
                                 fontWeight = FontWeight.Bold,
                             )
                         },
                         text = {
                             Text(
-                                text = if (isStreamingLive) {
+                                text = if (jobState.isLiveStreaming) {
                                     "${jobState.titleSlug.replace('_', ' ')}\n\n" +
-                                        "${jobState.cueCount} English cues ready. Remaining video chunks & subtitles will continue in the background."
+                                        "${jobState.cueCount} English cues ready. Remaining subtitles will stream live in the background."
+                                } else if (isStreamingLive) {
+                                    "${jobState.titleSlug.replace('_', ' ')}\n\n" +
+                                        "${jobState.cueCount} English cues ready. Remaining chunks & subtitles will continue in the background."
                                 } else {
                                     "${jobState.titleSlug.replace('_', ' ')}\n\n" +
                                         "${jobState.cueCount} English subtitle cues ready. Saved to Downloads/OpenScribe/."

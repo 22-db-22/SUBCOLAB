@@ -8,9 +8,14 @@ enum class WorkflowMode(
     val subtitle: String,
     val isLocalVideo: Boolean,
 ) {
+    WATCH_NOW(
+        title = "Watch Now (Live)",
+        subtitle = "Smooth live video stream + adaptive chunked subtitles, auto-opens when ready",
+        isLocalVideo = false,
+    ),
     DOWNLOAD_AND_TRANSLATE(
         title = "Download + Translate",
-        subtitle = "Save <=720p MP4 + English & original subtitles to Downloads/OpenScribe",
+        subtitle = "Save full <=720p MP4 + English & original subtitles to Downloads/OpenScribe",
         isLocalVideo = false,
     ),
     LOCAL_VIDEO_SUBTITLES(
@@ -297,6 +302,8 @@ data class JobProgressState(
     val liveSrtPath: String? = null,
     val liveOrigSrtPath: String? = null,
     val playableVideoSource: String? = null,
+    val playableAudioSource: String? = null,
+    val isLiveStreaming: Boolean = false,
     val activePackId: String? = null,
     val savePackStatus: SavePackStatus = SavePackStatus.IDLE,
     val saveProgressPercent: Int = 0,

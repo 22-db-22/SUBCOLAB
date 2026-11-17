@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,14 +52,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.openscribe.android.model.WhisperLanguages
+import com.openscribe.android.model.WorkflowMode
 import com.openscribe.android.ui.theme.OpenScribeColors
 import com.openscribe.android.ui.theme.OpenScribeTheme
 import com.openscribe.android.util.UrlUnwrapper
 
 /**
  * Compact floating dialog shown directly on top of YouTube/browsers when sharing a link.
- * Lets the user pick the source language and immediately closes so background download
- * and translation proceed uninterrupted without switching apps.
+ * Lets the user pick the source language and choose between:
+ * - Watch Now: smooth live video stream + adaptive chunked audio subtitles, auto-opens player
+ * - Download: full <=720p MP4 + subtitles saved quietly in background
  */
 class SharePromptActivity : ComponentActivity() {
 
@@ -82,10 +85,11 @@ class SharePromptActivity : ComponentActivity() {
                     cleanUrl = cleanUrl,
                     initialLang = initialLang,
                     onCancel = { finish() },
-                    onStart = { selectedLang ->
+                    onStart = { selectedLang, workflowMode ->
                         app.coordinator.startUrlJob(
                             rawUrl = cleanUrl,
                             sourceLang = selectedLang,
+                            workflowMode = workflowMode,
                             fromExternalShare = true,
                             reusePreviousCache = false,
                         )
@@ -114,7 +118,7 @@ private fun ShareOverlayCard(
     cleanUrl: String,
     initialLang: String,
     onCancel: () -> Unit,
-    onStart: (String) -> Unit,
+    onStart: (String, WorkflowMode) -> Unit,
 ) {
     var selectedLang by remember { mutableStateOf(initialLang) }
     var showLanguagePicker by remember { mutableStateOf(false) }
@@ -147,10 +151,13 @@ private fun ShareOverlayCard(
                         fontSize = 16.sp,
                     )
                     Text(
-                        text = "Download <=720p MP4 & English subtitles",
+                        text = "Watch Now (live stream) or Download full MP4",
                         color = OpenScribeColors.TextSecondary,
                         fontSize = 11.sp,
                     )
+                }
+                TextButton(onClick = onCancel) {
+                    Text("Cancel", color = OpenScribeColors.TextSecondary, fontSize = 12.sp)
                 }
             }
 
@@ -216,32 +223,65 @@ private fun ShareOverlayCard(
                 }
             }
 
+            HorizontalDivider(color = OpenScribeColors.BorderSubtle.copy(alpha = 0.5f))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.weight(1f),
+                    onClick = { onStart(selectedLang, WorkflowMode.DOWNLOAD_AND_TRANSLATE) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
+                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
                 ) {
-                    Text("Cancel", color = OpenScribeColors.TextPrimary, fontSize = 13.sp)
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = OpenScribeColors.GpuCyan,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Download",
+                        color = OpenScribeColors.GpuCyan,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
                 }
                 Button(
-                    onClick = { onStart(selectedLang) },
-                    modifier = Modifier.weight(1.4f),
+                    onClick = { onStart(selectedLang, WorkflowMode.WATCH_NOW) },
+                    modifier = Modifier
+                        .weight(1.25f)
+                        .height(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OpenScribeColors.SubtitleYellow,
                         contentColor = OpenScribeColors.Obsidian,
                     ),
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Start", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Watch Now",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
                 }
             }
+
+            Text(
+                text = "Watch Now streams smoothly & auto-opens once initial subs arrive. Download saves full MP4 quietly in background.",
+                color = OpenScribeColors.TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+            )
         }
     }
 

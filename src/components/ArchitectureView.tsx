@@ -2,28 +2,28 @@ import { Cpu, FileCode2, Layers, ShieldCheck } from 'lucide-react';
 
 const MODULES = [
   {
-    name: 'Embedded Player (dev.jdtech.mpv:libmpv:1.0.0)',
+    name: 'Embedded Live Player (dev.jdtech.mpv:libmpv:0.5.1)',
     path: 'app/src/main/java/com/openscribe/android/player/MpvPlayerController.kt',
     summary:
-      'Hardware-decoded SurfaceView player with yellow subtitles (#FFFF00), split audio-file support, brightness/volume swipes, true immersive fullscreen, in-player background Save, PiP, and atomic sub-reload.',
+      'Hardware-decoded SurfaceView player streaming smoothly via LoopbackMediaProxy (64MiB cache, 30s readahead, split DASH audio-add) with zero chunk cuts, live sub-reload, gestures, fullscreen, and PiP.',
   },
   {
-    name: 'Stream Extractor (youtubedl-android:0.18.1)',
+    name: 'Live Proxy & Adaptive Audio Chunker (youtubedl-android:0.18.1)',
     path: 'app/src/main/java/com/openscribe/android/media/StreamExtractor.kt',
     summary:
-      'Resolves <=720p combined streams across ios/mweb/tv_embedded/default, falls back to split 720p or 360p format 18, and handles Phone Wi-Fi Audio Relay on @@OPENSCRIBE_BOT_BLOCKED@@.',
+      'Resolves direct video + audio streams via yt-dlp, serves them to libmpv over OkHttp LoopbackMediaProxy (Range + HLS M3U8), and slices ONLY audio (15s–60s adaptive 24kbps AAC) so live video is never slowed down.',
   },
   {
-    name: 'Colab OAuth2 & Jupyter Client (google-colab-cli)',
+    name: 'Colab OAuth2 & Streaming Queue (google-colab-cli)',
     path: 'app/src/main/java/com/openscribe/android/colab/ColabClient.kt',
     summary:
-      'EncryptedSharedPreferences OAuth2 (sdk.cloud.google.com primary + optional custom Client ID loopback), T4 /tun/m/assign XSRF + 4s warmup, /api/contents upload, OkHttp WebSocket kernel execution, 20s heartbeat, and auto-recover.',
+      'EncryptedSharedPreferences OAuth2, T4 /tun/m/assign XSRF warmup, instant tiny audio-chunk uploads to /content/openscribe_queue_<id>, WebSocket streaming cues, and auto-recover.',
   },
   {
-    name: 'Foreground Service & Subtitle Engine',
-    path: 'app/src/main/java/com/openscribe/android/service/OpenScribeForegroundService.kt',
+    name: 'Share Dialog & Auto-Open Over Other Apps',
+    path: 'app/src/main/java/com/openscribe/android/SharePromptActivity.kt',
     summary:
-      'Acquires PARTIAL_WAKE_LOCK, streams colab_worker.py verbatim from assets/, auto-opens player at 4 cues, handles Seek-Ahead (/content/openscribe_seek.txt), and saves MP4/SRT/ASS/VTT via MediaStore.',
+      'Floating overlay offers Watch Now (smooth live stream + auto-open over YouTube via SYSTEM_ALERT_WINDOW / full-screen intent) and Download (full regular <=720p MP4 quietly in background).',
   },
 ];
 

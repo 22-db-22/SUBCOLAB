@@ -87,6 +87,24 @@ class StreamExtractor {
             return vOk && aOk
         }
 
+        /**
+         * Chooses an adaptive audio chunk duration (in seconds) based on total video duration:
+         * - Short videos (<=3 min): 15s for ultra-fast initial subtitles
+         * - Medium videos (3-15 min): 25s balanced latency & Whisper context
+         * - Long videos (15-45 min): 40s fewer chunks & better translation continuity
+         * - Very long videos (>45 min): 60s efficient batching
+         * - Unknown duration (<=0): 20s safe default
+         */
+        fun computeAdaptiveAudioChunkSec(durationSec: Double): Int {
+            return when {
+                durationSec <= 0.0 -> 20
+                durationSec <= 180.0 -> 15
+                durationSec <= 900.0 -> 25
+                durationSec <= 2700.0 -> 40
+                else -> 60
+            }
+        }
+
         @Volatile
         private var loggedFfmpegLdPath = false
 
@@ -399,11 +417,13 @@ class StreamExtractor {
     }
 
     /**
-     * Local HTTP/1.1 loopback proxy backed by Android OkHttp (Conscrypt TLS, HTTP/2, IPv4-first DNS,
-     * full header forwarding, byte Range support, and HLS M3U8 URI rewriting) so libffmpeg.so
-     * reads clean http://127.0.0.1:<port>/... URLs without native OpenSSL/CA cert issues.
+     * Creates a local HTTP/1.1 loopback proxy backed by Android OkHttp (Conscrypt TLS, HTTP/2, IPv4-first DNS,
+     * full header forwarding, byte Range support, and HLS M3U8 URI rewriting) so libmpv and libffmpeg.so
+     * can live-stream remote URLs smoothly without native OpenSSL/CA cert issues.
      */
-    private inner class LoopbackMediaProxy(
+    fun createLoopbackProxy(headers: Map<String, String>): LoopbackMediaProxy = LoopbackMediaProxy(headers)
+
+    inner class LoopbackMediaProxy(
         private val headers: Map<String, String>,
     ) : Closeable {
         private val serverSocket = ServerSocket(0, 32, InetAddress.getByName("127.0.0.1"))
@@ -741,6 +761,128 @@ class StreamExtractor {
             }
             drainJob.cancel()
             localProxy.close()
+        }
+    }
+
+    /**
+     * Downloads ONLY the audio track into adaptive sequential 16 kHz mono 24 kbps ADTS AAC chunks (~3 KB/sec)
+     * so live video streaming in libmpv is never slowed down or interrupted by video chunking.
+     */
+    suspend fun downloadAudioInChunks(
+        context: Context,
+        streamInfo: ResolvedStreamInfo,
+        workDir: File,
+        existingProxy: LoopbackMediaProxy? = null,
+        chunkDurationSec: Int = computeAdaptiveAudioChunkSec(streamInfo.durationSec),
+        processId: String = "relay_audio",
+        onProgress: (Float, String) -> Unit,
+        onAudioChunkReady: suspend (VideoChunkInfo) -> Unit,
+    ): List<VideoChunkInfo> = withContext(Dispatchers.IO) {
+        workDir.mkdirs()
+        workDir.listFiles()?.forEach { it.deleteRecursively() }
+        val segmentsCsv = File(workDir, "audio_segments.csv")
+        val ownedProxy = if (existingProxy == null) LoopbackMediaProxy(streamInfo.httpHeaders) else null
+        val proxy = existingProxy ?: ownedProxy!!
+        val sourceUrl = streamInfo.audioUrl?.takeIf { it.isNotBlank() } ?: streamInfo.videoUrl
+        val localAudioUrl = proxy.proxiedUrl(sourceUrl)
+        val segSec = chunkDurationSec.coerceIn(12, 60)
+
+        val args = listOf(
+            "-nostdin", "-y",
+            "-hide_banner", "-loglevel", "warning",
+            "-err_detect", "ignore_err",
+            "-reconnect", "1",
+            "-reconnect_streamed", "1",
+            "-reconnect_delay_max", "5",
+            "-i", localAudioUrl,
+            "-vn", "-sn", "-dn",
+            "-ac", "1", "-ar", "16000",
+            "-c:a", "aac", "-b:a", "24k",
+            "-f", "segment",
+            "-segment_time", segSec.toString(),
+            "-segment_format", "adts",
+            "-reset_timestamps", "1",
+            "-segment_list_type", "csv",
+            "-segment_list", segmentsCsv.absolutePath,
+            File(workDir, "audio_%03d.aac").absolutePath,
+        )
+
+        AppLogger.i(TAG, "Starting adaptive audio-only chunk stream (${segSec}s slices, dur=${streamInfo.durationSec.toInt()}s, proxyPort=${proxy.port})")
+        val proc = startFfmpegProcess(context, args)
+        activeNativeProcesses[processId] = proc
+
+        val outputTail = ArrayList<String>(20)
+        val drainJob = launch {
+            runCatching {
+                proc.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { raw ->
+                        val s = raw.trim()
+                        if (s.isNotEmpty()) {
+                            synchronized(outputTail) {
+                                outputTail.add(s)
+                                if (outputTail.size > 20) outputTail.removeAt(0)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val emittedFiles = HashSet<String>()
+        val chunks = ArrayList<VideoChunkInfo>()
+
+        suspend fun pollNewAudioChunks() {
+            if (!segmentsCsv.exists()) return
+            val lines = runCatching { segmentsCsv.readLines() }.getOrDefault(emptyList())
+            for (line in lines) {
+                val parsed = parseSegmentsCsvLine(line) ?: continue
+                val (filename, startSec, endSec) = parsed
+                if (!emittedFiles.add(filename)) continue
+                val chunkFile = File(workDir, filename)
+                if (!chunkFile.exists() || chunkFile.length() <= 0L) {
+                    emittedFiles.remove(filename)
+                    continue
+                }
+                val chunkInfo = VideoChunkInfo(
+                    index = chunks.size,
+                    path = chunkFile.absolutePath,
+                    startSec = startSec,
+                    endSec = endSec,
+                )
+                chunks.add(chunkInfo)
+                val pct = if (streamInfo.durationSec > 0.0) {
+                    ((endSec / streamInfo.durationSec) * 100.0).toFloat().coerceIn(1f, 99f)
+                } else {
+                    (chunks.size * 10f).coerceIn(5f, 95f)
+                }
+                onProgress(pct, "Audio chunk ${chunkInfo.index + 1} (${endSec.toInt()}s) queued")
+                onAudioChunkReady(chunkInfo)
+            }
+        }
+
+        try {
+            while (proc.isAlive) {
+                currentCoroutineContext().ensureActive()
+                pollNewAudioChunks()
+                delay(180L)
+            }
+            drainJob.join()
+            pollNewAudioChunks()
+            val rc = proc.exitValue()
+            if (rc != 0 || chunks.isEmpty()) {
+                val errTail = synchronized(outputTail) { outputTail.joinToString("\n") }
+                throw IllegalStateException("Audio-only chunk stream failed (ffmpeg rc=$rc): $errTail")
+            }
+            onProgress(100f, "All ${chunks.size} audio chunks queued for Whisper")
+            AppLogger.i(TAG, "Audio-only chunk stream complete: ${chunks.size} chunks (${segSec}s adaptive)")
+            chunks
+        } finally {
+            activeNativeProcesses.remove(processId, proc)
+            if (proc.isAlive) {
+                proc.destroyForcibly()
+            }
+            drainJob.cancel()
+            ownedProxy?.close()
         }
     }
 

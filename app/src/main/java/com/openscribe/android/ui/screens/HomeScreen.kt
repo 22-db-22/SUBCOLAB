@@ -2,6 +2,8 @@ package com.openscribe.android.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -127,7 +129,8 @@ fun HomeScreen(
     lastCrashText: String? = null,
     onUrlChange: (String) -> Unit,
     onSelectLang: (String) -> Unit,
-    onStartUrlJob: () -> Unit,
+    onStartWatchNowJob: () -> Unit,
+    onStartDownloadJob: () -> Unit,
     onPickLocalVideo: (Uri) -> Unit,
     onClearLocalVideo: () -> Unit,
     onStartLocalVideoJob: () -> Unit,
@@ -321,7 +324,8 @@ fun HomeScreen(
                         languagePickerTargetForPack = null
                         showLanguagePickerDialog = true
                     },
-                    onStartUrlJob = onStartUrlJob,
+                    onStartWatchNowJob = onStartWatchNowJob,
+                    onStartDownloadJob = onStartDownloadJob,
                     onPickLocalVideo = { localVideoPicker.launch(arrayOf("video/*")) },
                     onClearLocalVideo = onClearLocalVideo,
                     onStartLocalVideoJob = onStartLocalVideoJob,
@@ -509,7 +513,8 @@ private fun TranslateTabContent(
     onUrlChange: (String) -> Unit,
     onSelectLang: (String) -> Unit,
     onOpenAllLanguages: () -> Unit,
-    onStartUrlJob: () -> Unit,
+    onStartWatchNowJob: () -> Unit,
+    onStartDownloadJob: () -> Unit,
     onPickLocalVideo: () -> Unit,
     onClearLocalVideo: () -> Unit,
     onStartLocalVideoJob: () -> Unit,
@@ -525,6 +530,11 @@ private fun TranslateTabContent(
     onDismissLastCrash: () -> Unit,
     onJumpToDownloads: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var overlayBannerDismissed by remember { mutableStateOf(false) }
+    val needsOverlayPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        !runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -628,6 +638,54 @@ private fun TranslateTabContent(
             }
         }
 
+        // Auto-Open Over Other Apps Permission Banner (needed on Android 10+ so Watch Now pops over YouTube)
+        if (needsOverlayPermission && !overlayBannerDismissed) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.GpuCyanDark.copy(alpha = 0.35f)),
+                border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OpenScribeColors.GpuCyan)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-Open Over Other Apps",
+                            color = OpenScribeColors.GpuCyan,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                        )
+                        Text(
+                            text = "Allow once so Watch Now opens automatically over YouTube when initial subs arrive.",
+                            color = OpenScribeColors.TextPrimary,
+                            fontSize = 11.sp,
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}"),
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                context.startActivity(intent)
+                            }
+                        },
+                    ) {
+                        Text("Allow", color = OpenScribeColors.GpuCyan, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(onClick = { overlayBannerDismissed = true }) {
+                        Text("Later", color = OpenScribeColors.TextSecondary, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
         // Source Language Selector Card
         Card(
             colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
@@ -706,7 +764,7 @@ private fun TranslateTabContent(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    text = "Downloads MP4 & English subtitles in parallel into a dedicated folder under Downloads/OpenScribe/.",
+                    text = "Watch Now live-streams smoothly with adaptive audio-only subtitle chunks. Download saves a full <=720p MP4 quietly in the background.",
                     fontSize = 12.sp,
                     color = OpenScribeColors.TextSecondary,
                 )
@@ -740,21 +798,40 @@ private fun TranslateTabContent(
                     },
                 )
 
-                Button(
-                    onClick = onStartUrlJob,
-                    enabled = urlInput.isNotBlank() && !isRunning,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = OpenScribeColors.SubtitleYellow,
-                        contentColor = OpenScribeColors.Obsidian,
-                    ),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(Icons.Default.Download, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Download Video & Subtitles", fontWeight = FontWeight.Bold)
+                    OutlinedButton(
+                        onClick = onStartDownloadJob,
+                        enabled = urlInput.isNotBlank() && !isRunning,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = OpenScribeColors.GpuCyan, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download", color = OpenScribeColors.GpuCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    Button(
+                        onClick = onStartWatchNowJob,
+                        enabled = urlInput.isNotBlank() && !isRunning,
+                        modifier = Modifier
+                            .weight(1.25f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = OpenScribeColors.SubtitleYellow,
+                            contentColor = OpenScribeColors.Obsidian,
+                        ),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Watch Now", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                 }
             }
         }

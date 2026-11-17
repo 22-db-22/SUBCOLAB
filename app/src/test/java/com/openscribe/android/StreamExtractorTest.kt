@@ -30,4 +30,14 @@ class StreamExtractorTest {
         assertFalse(StreamExtractor.isCodecMpegTsCompatible("vp9", "opus"))
         assertFalse(StreamExtractor.isCodecMpegTsCompatible("av01.0.05M.08", "mp4a.40.2"))
     }
+
+    @Test
+    fun `computeAdaptiveAudioChunkSec scales smoothly by video duration`() {
+        assertEquals(20, StreamExtractor.computeAdaptiveAudioChunkSec(0.0))
+        assertEquals(15, StreamExtractor.computeAdaptiveAudioChunkSec(90.0))
+        assertEquals(15, StreamExtractor.computeAdaptiveAudioChunkSec(180.0))
+        assertEquals(25, StreamExtractor.computeAdaptiveAudioChunkSec(600.0))
+        assertEquals(40, StreamExtractor.computeAdaptiveAudioChunkSec(1800.0))
+        assertEquals(60, StreamExtractor.computeAdaptiveAudioChunkSec(3600.0))
+    }
 }
