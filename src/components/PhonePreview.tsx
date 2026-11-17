@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
-  Cpu,
   Download,
   ExternalLink,
-  FolderDown,
-  Languages,
+  Info,
+  Lightbulb,
   Loader2,
   Maximize2,
   Minimize2,
@@ -16,6 +15,7 @@ import {
   Share2,
   Square,
   Subtitles,
+  X,
 } from 'lucide-react';
 import {
   ChunkRange,
@@ -52,6 +52,8 @@ export function PhonePreview() {
   const [showLangSearch, setShowLangSearch] = useState(false);
   const [selectedMode, setSelectedMode] = useState<WorkflowModeId>('WATCH_NOW');
   const [screen, setScreen] = useState<SimScreen>('home');
+  const [showAbout, setShowAbout] = useState(false);
+  const [showQuickTip, setShowQuickTip] = useState(true);
 
   const [isRunning, setIsRunning] = useState(false);
   const [isGpuWarm, setIsGpuWarm] = useState(false);
@@ -71,7 +73,6 @@ export function PhonePreview() {
   const cleanUrl = extractAndUnwrapUrl(rawUrl);
   const filteredLanguages = searchWhisperLanguages(langQuery);
 
-  // Simulated foreground service progression to demonstrate 4-cue auto-open & Seek-Ahead
   useEffect(() => {
     if (!isRunning) return;
     let cancelled = false;
@@ -142,7 +143,6 @@ export function PhonePreview() {
     };
   }, [isRunning]);
 
-  // Playback timer
   useEffect(() => {
     if (screen !== 'player' || isPaused || isSeekingAhead) return;
     const id = window.setInterval(() => {
@@ -177,16 +177,15 @@ export function PhonePreview() {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
       {/* Left: Interactive Explanation & Controls */}
       <div className="space-y-5">
-        <div className="rounded-2xl border border-slate-800 bg-[#131A26] p-6">
+        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-slate-50">
+              <h2 className="text-lg font-semibold text-[#1C2621]">
                 Interactive Android Flow Preview
               </h2>
-              <p className="mt-1 text-sm text-slate-400">
-                Test the exact 1-APK workflow implemented in the Kotlin + Jetpack Compose project:
-                Share Sheet unwrapping, ~99 Whisper languages, 4-cue auto-open, Seek-Ahead, and Warm
-                T4 Session Reuse.
+              <p className="mt-1 text-sm text-[#5A6860]">
+                Calm Cream, Sage Green &amp; Soft Sky Blue Material 3 theme — while keeping the
+                embedded libmpv player cinema-black with high-contrast yellow subtitles.
               </p>
             </div>
             <button
@@ -197,7 +196,7 @@ export function PhonePreview() {
                 );
                 setScreen('sheet');
               }}
-              className="inline-flex items-center gap-2 rounded-xl border border-sky-500/40 bg-sky-500/10 px-3.5 py-2 text-xs font-semibold text-sky-300 transition hover:bg-sky-500/20"
+              className="inline-flex items-center gap-2 rounded-xl border border-[#5B9BD5]/50 bg-[#DDF0FB] px-3.5 py-2 text-xs font-semibold text-[#2B6CB0] transition hover:bg-[#cde6f8]"
             >
               <Share2 className="h-3.5 w-3.5" />
               Simulate YouTube Share Intent
@@ -205,91 +204,152 @@ export function PhonePreview() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-slate-800 bg-[#0B0F17] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#2E7D5B]">
                 1. Embedded libmpv
               </p>
-              <p className="mt-1 text-xs text-slate-300">
-                <code className="break-all text-sky-300">dev.jdtech.mpv:libmpv:1.0.0</code> with{' '}
-                <code className="text-amber-300">sub-add</code> + live{' '}
-                <code className="text-amber-300">sub-reload</code> in private{' '}
-                <code className="text-slate-200">filesDir</code>.
+              <p className="mt-1 text-xs text-[#5A6860]">
+                <code className="break-all font-medium text-[#2B6CB0]">
+                  dev.jdtech.mpv:libmpv:0.5.1
+                </code>{' '}
+                streaming smoothly on cinema-black with live{' '}
+                <code className="font-medium text-[#2E7D5B]">sub-reload</code>.
               </p>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-[#0B0F17] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-sky-400">
+            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#2B6CB0]">
                 2. Embedded yt-dlp
               </p>
-              <p className="mt-1 text-xs text-slate-300">
-                <code className="break-all text-sky-300">youtubedl-android:0.18.1</code> (library, ffmpeg,
-                aria2c) + MediaStore saver.
+              <p className="mt-1 text-xs text-[#5A6860]">
+                <code className="break-all font-medium text-[#2B6CB0]">
+                  youtubedl-android:0.18.1
+                </code>{' '}
+                with loopback live proxy + adaptive audio-only chunks.
               </p>
             </div>
-            <div className="rounded-xl border border-slate-800 bg-[#0B0F17] p-3.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[#16A34A]">
                 3. Headless Colab T4
               </p>
-              <p className="mt-1 text-xs text-slate-300">
-                <code className="text-sky-300">google-colab-cli</code> OAuth2 + Jupyter WebSocket
-                streaming <code className="text-slate-200">colab_worker.py</code>.
+              <p className="mt-1 text-xs text-[#5A6860]">
+                <code className="font-medium text-[#2B6CB0]">google-colab-cli</code> OAuth2 +
+                Whisper <code className="font-medium text-[#1C2621]">large-v3</code> WebSocket
+                streaming.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Live Foreground Service & Protocol Log Preview */}
-        <div className="rounded-2xl border border-slate-800 bg-[#131A26] p-5">
+        {/* Live Foreground Service & Protocol State */}
+        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-100">
+            <h3 className="text-sm font-semibold text-[#1C2621]">
               Android Foreground Service State
             </h3>
             <span
-              className={`rounded-md px-2.5 py-0.5 text-xs font-medium ${
+              className={`rounded-md px-2.5 py-0.5 text-xs font-semibold ${
                 isGpuWarm
-                  ? 'bg-emerald-500/15 text-emerald-300'
-                  : 'bg-slate-800 text-slate-400'
+                  ? 'bg-[#DDF0FB] text-[#2B6CB0]'
+                  : 'bg-[#F1ECE1] text-[#5A6860]'
               }`}
             >
               {isGpuWarm ? 'T4 GPU Warm (WakeLock Active)' : 'Idle'}
             </span>
           </div>
           <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-800/80 bg-[#0B0F17] p-3">
-              <dt className="text-slate-400">Unwrapped Target URL</dt>
-              <dd className="mt-1 break-all font-mono text-sky-300">{cleanUrl || 'None'}</dd>
+            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3">
+              <dt className="text-[#5A6860]">Unwrapped Target URL</dt>
+              <dd className="mt-1 break-all font-mono text-[#2B6CB0]">{cleanUrl || 'None'}</dd>
             </div>
-            <div className="rounded-xl border border-slate-800/80 bg-[#0B0F17] p-3">
-              <dt className="text-slate-400">Live Notification Banner</dt>
-              <dd className="mt-1 leading-relaxed font-medium text-amber-300">{statusLine}</dd>
+            <div className="rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3">
+              <dt className="text-[#5A6860]">Live Notification Banner</dt>
+              <dd className="mt-1 leading-relaxed font-semibold text-[#2E7D5B]">{statusLine}</dd>
             </div>
           </dl>
+        </div>
+
+        {/* About OpenScribe Card */}
+        <div className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-[#1C2621]">About OpenScribe</h3>
+              <p className="text-xs font-medium text-[#2E7D5B]">OpenScribe Android v1.0.0</p>
+            </div>
+            <span className="rounded-lg bg-[#DCEFE5] px-2.5 py-1 text-[11px] font-semibold text-[#2E7D5B]">
+              Cream + Sage + Sky
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-[#5A6860]">
+            Live AI video translation powered by Whisper large-v3 on Google Colab T4 &amp; libmpv.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E2DCCD] pt-3 text-xs">
+            <span className="text-[#5A6860]">
+              Created by <strong className="text-[#1C2621]">writtenwithharmony@gmail.com</strong>
+            </span>
+            <a
+              href="https://github.com/22-db-22/openscribe-android"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-semibold text-[#2B6CB0] hover:underline"
+            >
+              GitHub Repository
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </div>
         </div>
       </div>
 
       {/* Right: Realistic Android Phone Frame */}
-      <div className="mx-auto w-full max-w-[380px] rounded-[2.2rem] border-[6px] border-slate-800 bg-[#0B0F17] p-3 shadow-2xl">
-        {/* Status Bar */}
-        <div className="flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-medium text-slate-400">
+      <div
+        className={`mx-auto w-full max-w-[380px] rounded-[2.2rem] border-[6px] border-[#26322C] p-3 shadow-xl transition-colors ${
+          screen === 'player' ? 'bg-black' : 'bg-[#FAF7F0]'
+        }`}
+      >
+        {/* Status Bar (Light icons on Cinema Player, Dark icons on Cream Home) */}
+        <div
+          className={`flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold ${
+            screen === 'player' ? 'text-slate-300' : 'text-[#1C2621]'
+          }`}
+        >
           <span>OpenScribe</span>
           <span className="flex items-center gap-1.5">
-            {isGpuWarm && <span className="h-2 w-2 rounded-full bg-emerald-400" />}
+            {isGpuWarm && (
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  screen === 'player' ? 'bg-[#7CC4FA]' : 'bg-[#5B9BD5]'
+                }`}
+              />
+            )}
             {isGpuWarm ? 'T4 Warm' : 'Android 15'}
           </span>
         </div>
 
-        <div className="min-h-[560px] overflow-hidden rounded-[1.5rem] border border-slate-800/90 bg-[#0B0F17]">
+        <div
+          className={`min-h-[560px] overflow-hidden rounded-[1.5rem] border ${
+            screen === 'player'
+              ? 'border-slate-800 bg-black'
+              : 'border-[#E2DCCD] bg-[#FAF7F0]'
+          }`}
+        >
           {screen === 'player' ? (
             <div className="flex h-[560px] flex-col justify-between bg-black p-3">
               <div className="flex items-center justify-between gap-1.5">
                 <button
                   type="button"
                   onClick={() => setScreen('home')}
-                  className="rounded-lg bg-slate-900/90 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800"
+                  className="rounded-lg bg-slate-900/90 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
                 >
                   Back
                 </button>
-                <span className="truncate text-[11px] font-medium text-amber-400">
-                  {cueCount} cues • {selectedMode === 'WATCH_NOW' ? 'Live Stream' : bgSaveState === 'saved' ? 'Saved' : isFullscreen ? 'Immersive' : 'libmpv'}
+                <span className="truncate text-[11px] font-semibold text-[#FFFF00]">
+                  {cueCount} cues •{' '}
+                  {selectedMode === 'WATCH_NOW'
+                    ? 'Live Stream'
+                    : bgSaveState === 'saved'
+                      ? 'Saved'
+                      : isFullscreen
+                        ? 'Immersive'
+                        : 'libmpv'}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
@@ -308,7 +368,7 @@ export function PhonePreview() {
                     }`}
                   >
                     {bgSaveState === 'saving' ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-400" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-[#7CC4FA]" />
                     ) : bgSaveState === 'saved' ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                     ) : (
@@ -320,7 +380,7 @@ export function PhonePreview() {
                     onClick={() => setSubsVisible((v) => !v)}
                     aria-label="Toggle subtitles"
                     className={`rounded-lg px-2 py-1 text-xs font-medium ${
-                      subsVisible ? 'bg-amber-400 text-slate-950' : 'bg-slate-800 text-slate-300'
+                      subsVisible ? 'bg-[#FFFF00] text-black' : 'bg-slate-800 text-slate-300'
                     }`}
                   >
                     <Subtitles className="h-3.5 w-3.5" />
@@ -330,7 +390,7 @@ export function PhonePreview() {
                     onClick={() => setIsFullscreen((f) => !f)}
                     aria-label="Toggle immersive fullscreen"
                     className={`rounded-lg px-2 py-1 text-xs font-medium ${
-                      isFullscreen ? 'bg-sky-500/25 text-sky-300' : 'bg-slate-800 text-slate-300'
+                      isFullscreen ? 'bg-[#7CC4FA]/25 text-[#7CC4FA]' : 'bg-slate-800 text-slate-300'
                     }`}
                   >
                     {isFullscreen ? (
@@ -345,10 +405,10 @@ export function PhonePreview() {
               {/* Video Canvas Area */}
               <div className="relative flex flex-1 flex-col items-center justify-center">
                 {isSeekingAhead ? (
-                  <div className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-[#0B0F17]/95 px-4 py-3">
-                    <Loader2 className="h-5 w-5 animate-spin text-amber-400" />
+                  <div className="flex items-center gap-3 rounded-xl border border-[#FFFF00]/40 bg-[#0B0F17]/95 px-4 py-3">
+                    <Loader2 className="h-5 w-5 animate-spin text-[#FFFF00]" />
                     <div>
-                      <p className="text-xs font-semibold text-amber-300">
+                      <p className="text-xs font-semibold text-[#FFFF00]">
                         Translating from {formatMmSs(seekTargetSec ?? playTimeSec)}...
                       </p>
                       <p className="text-[11px] text-slate-400">
@@ -382,7 +442,7 @@ export function PhonePreview() {
                   <button
                     type="button"
                     onClick={() => setIsPaused((p) => !p)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-bold text-slate-950"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#FFFF00] px-3 py-1.5 text-xs font-bold text-black"
                   >
                     {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
                     {isPaused ? 'Play' : 'Pause'}
@@ -390,7 +450,7 @@ export function PhonePreview() {
                   <button
                     type="button"
                     onClick={() => handleSeek(135)}
-                    className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/20"
+                    className="rounded-lg border border-[#7CC4FA]/40 bg-[#7CC4FA]/10 px-2.5 py-1.5 text-[11px] font-semibold text-[#7CC4FA] hover:bg-[#7CC4FA]/20"
                   >
                     Test Seek-Ahead (02:15)
                   </button>
@@ -402,32 +462,88 @@ export function PhonePreview() {
                   max={180}
                   value={playTimeSec}
                   onChange={(e) => handleSeek(Number(e.target.value))}
-                  className="w-full accent-amber-400"
+                  className="w-full accent-[#FFFF00]"
                 />
               </div>
             </div>
           ) : (
-            <div className="space-y-3.5 p-3.5">
+            <div className="space-y-3 p-3.5">
               {/* Header */}
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-400 text-slate-950">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#2E7D5B] text-white shadow-sm">
                     <Subtitles className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-slate-100">OpenScribe</p>
-                    <p className="text-[11px] text-slate-400">
-                      {isGpuWarm ? 'T4 GPU Warm' : 'Ready'}
+                    <p className="text-sm font-bold text-[#1C2621]">OpenScribe</p>
+                    <p
+                      className={`text-[11px] font-medium ${
+                        isGpuWarm ? 'text-[#2B6CB0]' : 'text-[#5A6860]'
+                      }`}
+                    >
+                      {isGpuWarm ? 'T4 GPU Warm' : 'Live AI Video Translator'}
                     </p>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAbout((a) => !a)}
+                  aria-label="About OpenScribe"
+                  className="rounded-lg p-1.5 text-[#5A6860] transition hover:bg-[#F1ECE1] hover:text-[#1C2621]"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
               </div>
 
+              {showAbout && (
+                <div className="space-y-1.5 rounded-2xl border border-[#E2DCCD] bg-white p-3 text-[11px] shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[#1C2621]">OpenScribe Android v1.0.0</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAbout(false)}
+                      aria-label="Close about"
+                      className="text-[#5A6860]"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[#5A6860]">Created by writtenwithharmony@gmail.com</p>
+                  <p className="font-medium text-[#2B6CB0]">
+                    github.com/22-db-22/openscribe-android
+                  </p>
+                </div>
+              )}
+
+              {/* Quick Tips Card */}
+              {showQuickTip && screen === 'home' && (
+                <div className="flex items-start gap-2.5 rounded-2xl border border-[#E2DCCD] bg-white p-2.5 text-[11px] shadow-xs">
+                  <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#DDF0FB] text-[#2B6CB0]">
+                    <Lightbulb className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-[#1C2621]">Quick Tip</p>
+                    <p className="text-[#5A6860]">
+                      Share directly from YouTube → OpenScribe, or swipe left/right in the player
+                      for brightness &amp; volume.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickTip(false)}
+                    aria-label="Dismiss tip"
+                    className="text-[#5A6860] hover:text-[#1C2621]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* URL Input */}
-              <div className="rounded-xl border border-slate-800 bg-[#131A26] p-3">
+              <div className="rounded-2xl border border-[#E2DCCD] bg-white p-3 shadow-xs">
                 <label
                   htmlFor="sim-url"
-                  className="block text-xs font-semibold text-slate-200"
+                  className="block text-xs font-semibold text-[#1C2621]"
                 >
                   Video Link
                 </label>
@@ -436,12 +552,12 @@ export function PhonePreview() {
                   type="url"
                   value={rawUrl}
                   onChange={(e) => setRawUrl(e.target.value)}
-                  className="mt-1.5 w-full rounded-lg border border-slate-700 bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-100 focus:border-amber-400 focus:outline-none"
+                  className="mt-1.5 w-full rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] px-2.5 py-2 text-xs text-[#1C2621] focus:border-[#2E7D5B] focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setScreen('sheet')}
-                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-400 py-2.5 text-xs font-bold text-slate-950 transition hover:bg-amber-300"
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#2E7D5B] py-2.5 text-xs font-bold text-white transition hover:bg-[#25694c]"
                 >
                   <Play className="h-3.5 w-3.5" />
                   Configure &amp; Start Translation
@@ -450,15 +566,15 @@ export function PhonePreview() {
 
               {/* Language & Mode Config Sheet */}
               {screen === 'sheet' && (
-                <div className="space-y-3 rounded-xl border border-amber-400/50 bg-[#131A26] p-3">
+                <div className="space-y-3 rounded-2xl border border-[#2E7D5B]/45 bg-white p-3 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-100">
+                    <span className="text-xs font-bold text-[#1C2621]">
                       Source Language (~99)
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowLangSearch((s) => !s)}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#2B6CB0]"
                     >
                       <Search className="h-3 w-3" />
                       {showLangSearch ? 'Hide Search' : 'Search All'}
@@ -471,10 +587,10 @@ export function PhonePreview() {
                         key={lang.code}
                         type="button"
                         onClick={() => setSelectedLang(lang.code)}
-                        className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
                           selectedLang === lang.code
-                            ? 'bg-amber-400/20 text-amber-300 ring-1 ring-amber-400/60'
-                            : 'bg-[#0B0F17] text-slate-300'
+                            ? 'bg-[#DCEFE5] text-[#2E7D5B] ring-1 ring-[#2E7D5B]/50'
+                            : 'bg-[#F1ECE1] text-[#5A6860]'
                         }`}
                       >
                         {lang.code}
@@ -490,7 +606,7 @@ export function PhonePreview() {
                         placeholder="Search e.g. spanish, yue, hangul..."
                         value={langQuery}
                         onChange={(e) => setLangQuery(e.target.value)}
-                        className="w-full rounded-lg border border-slate-700 bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-100"
+                        className="w-full rounded-lg border border-[#E2DCCD] bg-[#FAF7F0] px-2.5 py-1.5 text-xs text-[#1C2621]"
                       />
                       <div className="max-h-24 space-y-1 overflow-y-auto">
                         {filteredLanguages.slice(0, 6).map((l) => (
@@ -501,10 +617,12 @@ export function PhonePreview() {
                               setSelectedLang(l.code);
                               setShowLangSearch(false);
                             }}
-                            className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11px] text-slate-200 hover:bg-slate-800"
+                            className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11px] text-[#1C2621] hover:bg-[#F1ECE1]"
                           >
                             <span>{l.name}</span>
-                            <span className="font-mono text-sky-300">{l.code}</span>
+                            <span className="font-mono font-semibold text-[#2B6CB0]">
+                              {l.code}
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -519,7 +637,7 @@ export function PhonePreview() {
                         setScreen('home');
                         setIsRunning(true);
                       }}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-sky-500/50 bg-sky-500/10 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#5B9BD5] bg-[#DDF0FB] py-2 text-xs font-bold text-[#2B6CB0] transition hover:bg-[#cde6f8]"
                     >
                       <Download className="h-3.5 w-3.5" />
                       Download
@@ -531,37 +649,38 @@ export function PhonePreview() {
                         setScreen('home');
                         setIsRunning(true);
                       }}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-400 py-2 text-xs font-bold text-slate-950 transition hover:bg-amber-300"
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#2E7D5B] py-2 text-xs font-bold text-white transition hover:bg-[#25694c]"
                     >
                       <Play className="h-3.5 w-3.5" />
                       Watch Now
                     </button>
                   </div>
-                  <p className="text-[10px] leading-relaxed text-slate-400">
-                    Watch Now streams smoothly &amp; auto-opens over other apps once initial subs arrive. Download saves full MP4 quietly in background.
+                  <p className="text-[10px] leading-relaxed text-[#5A6860]">
+                    Watch Now streams smoothly &amp; auto-opens over other apps once initial subs
+                    arrive. Download saves full MP4 quietly in background.
                   </p>
                 </div>
               )}
 
               {/* Active Progress / Warm Reuse */}
               {(isRunning || cueCount > 0 || isGpuWarm) && (
-                <div className="space-y-2.5 rounded-xl border border-slate-800 bg-[#131A26] p-3">
+                <div className="space-y-2.5 rounded-2xl border border-[#E2DCCD] bg-white p-3 shadow-xs">
                   <div className="flex items-center gap-2">
                     {isRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-sky-400" />
+                      <Loader2 className="h-4 w-4 animate-spin text-[#5B9BD5]" />
                     ) : (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                      <CheckCircle2 className="h-4 w-4 text-[#16A34A]" />
                     )}
-                    <p className="text-xs font-semibold text-slate-100">{statusLine}</p>
+                    <p className="text-xs font-semibold text-[#1C2621]">{statusLine}</p>
                   </div>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-[#5A6860]">
                     {cueCount} cues • {completedChunks.length} chunk(s) • lang={selectedLang}
                   </p>
                   {cueCount >= 4 && (
                     <button
                       type="button"
                       onClick={() => setScreen('player')}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-400 py-1.5 text-xs font-bold text-slate-950"
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2E7D5B] py-2 text-xs font-bold text-white"
                     >
                       <Play className="h-3.5 w-3.5" />
                       Open Built-in libmpv Player
@@ -571,16 +690,16 @@ export function PhonePreview() {
               )}
 
               {isGpuWarm && !isRunning && (
-                <div className="space-y-2 rounded-xl border border-sky-500/30 bg-[#131A26] p-3">
+                <div className="space-y-2 rounded-2xl border border-[#5B9BD5]/40 bg-white p-3 shadow-xs">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-sky-300">Warm T4 Reuse</span>
+                    <span className="text-xs font-semibold text-[#2B6CB0]">Warm T4 Reuse</span>
                     <button
                       type="button"
                       onClick={() => {
                         setIsGpuWarm(false);
                         setStatusLine('Colab T4 GPU stopped');
                       }}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#DC2626]"
                     >
                       <Square className="h-3 w-3" />
                       Stop T4 GPU
@@ -590,10 +709,10 @@ export function PhonePreview() {
                     <button
                       type="button"
                       onClick={() => setIsRunning(true)}
-                      className="inline-flex items-center justify-center gap-1 rounded-lg border border-amber-400/50 py-1.5 text-[11px] font-semibold text-amber-300"
+                      className="inline-flex items-center justify-center gap-1 rounded-xl border border-[#2E7D5B]/50 bg-[#DCEFE5]/50 py-1.5 text-[11px] font-semibold text-[#2E7D5B]"
                     >
                       <RotateCcw className="h-3 w-3" />
-                      [A] Run Previous
+                      Run Previous
                     </button>
                     <button
                       type="button"
@@ -602,34 +721,35 @@ export function PhonePreview() {
                         setRawUrl('');
                         setCueCount(0);
                       }}
-                      className="inline-flex items-center justify-center gap-1 rounded-lg border border-sky-400/50 py-1.5 text-[11px] font-semibold text-sky-300"
+                      className="inline-flex items-center justify-center gap-1 rounded-xl border border-[#5B9BD5]/50 bg-[#DDF0FB]/60 py-1.5 text-[11px] font-semibold text-[#2B6CB0]"
                     >
                       <ExternalLink className="h-3 w-3" />
-                      [B] New Link
+                      New Link
                     </button>
                   </div>
                   {hasPreviousCache && (
-                    <p className="text-[10px] text-emerald-400">
+                    <p className="text-[10px] font-medium text-[#16A34A]">
                       Smart Cache: Subtitles + MP4 cached
                     </p>
                   )}
                 </div>
               )}
+
               {screen === 'home' && !isRunning && cueCount === 0 && !isGpuWarm && (
-                <div className="space-y-2 rounded-xl border border-slate-800/80 bg-[#131A26]/70 p-3 text-[11px] text-slate-300">
-                  <p className="font-semibold text-slate-100">Single-APK Ready</p>
-                  <p className="text-slate-400">
-                    Share any video from YouTube or tap Configure above. At 4 English cues, the
-                    built-in libmpv player opens automatically.
+                <div className="space-y-2 rounded-2xl border border-[#E2DCCD] bg-[#F1ECE1]/70 p-3 text-[11px] text-[#5A6860]">
+                  <p className="font-semibold text-[#1C2621]">Single-APK Ready</p>
+                  <p>
+                    Share any video from YouTube or tap Configure above. Watch Now live-streams
+                    smoothly and auto-opens once initial subtitles arrive.
                   </p>
-                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px]">
-                    <span className="rounded bg-[#0B0F17] px-2 py-0.5 text-sky-300">
+                  <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-semibold">
+                    <span className="rounded-md bg-[#DDF0FB] px-2 py-0.5 text-[#2B6CB0]">
                       No Termux
                     </span>
-                    <span className="rounded bg-[#0B0F17] px-2 py-0.5 text-amber-300">
-                      No External mpv
+                    <span className="rounded-md bg-[#DCEFE5] px-2 py-0.5 text-[#2E7D5B]">
+                      Embedded libmpv
                     </span>
-                    <span className="rounded bg-[#0B0F17] px-2 py-0.5 text-emerald-300">
+                    <span className="rounded-md bg-white px-2 py-0.5 text-[#1C2621] ring-1 ring-[#E2DCCD]">
                       Scoped MediaStore
                     </span>
                   </div>

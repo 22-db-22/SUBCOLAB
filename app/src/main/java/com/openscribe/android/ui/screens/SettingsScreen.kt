@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,12 +29,15 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Cookie
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +47,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -55,8 +61,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,6 +98,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
     val canDrawOverlays = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
         runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
     var manualCodeInput by remember { mutableStateOf("") }
@@ -178,8 +187,8 @@ fun SettingsScreen(
                             enabled = !authState.isSigningIn,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = OpenScribeColors.GpuCyan,
-                                contentColor = OpenScribeColors.Obsidian,
+                                containerColor = OpenScribeColors.SagePrimary,
+                                contentColor = Color.White,
                             ),
                         ) {
                             Text(
@@ -287,8 +296,8 @@ fun SettingsScreen(
                                 onClick = { onCompleteCopyPasteAuth(manualCodeInput) },
                                 enabled = !authState.isSigningIn && manualCodeInput.isNotBlank(),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = OpenScribeColors.SubtitleYellow,
-                                    contentColor = OpenScribeColors.Obsidian,
+                                    containerColor = OpenScribeColors.SagePrimary,
+                                    contentColor = Color.White,
                                 ),
                             ) {
                                 Text("Verify Code", fontWeight = FontWeight.Bold)
@@ -395,8 +404,8 @@ fun SettingsScreen(
                             checked = settings.cleanAudio,
                             onCheckedChange = onSetCleanAudio,
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = OpenScribeColors.Obsidian,
-                                checkedTrackColor = OpenScribeColors.SubtitleYellow,
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = OpenScribeColors.SagePrimary,
                             ),
                         )
                     }
@@ -463,8 +472,8 @@ fun SettingsScreen(
                             checked = settings.useCustomTunnel,
                             onCheckedChange = onSetUseCustomTunnel,
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = OpenScribeColors.Obsidian,
-                                checkedTrackColor = OpenScribeColors.GpuCyan,
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = OpenScribeColors.SkyAccent,
                             ),
                         )
                     }
@@ -541,11 +550,11 @@ fun SettingsScreen(
                                     context.startActivity(intent)
                                 }
                             },
-                            border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                            border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.7f)),
                         ) {
                             Text(
                                 text = if (canDrawOverlays) "Manage Overlay Permission" else "Enable Auto-Open Permission",
-                                color = OpenScribeColors.GpuCyan,
+                                color = OpenScribeColors.SkyTextStrong,
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
@@ -607,6 +616,124 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Copy All Logs", color = OpenScribeColors.SubtitleYellow)
                         }
+                    }
+                }
+            }
+
+            // 6. About OpenScribe & Credits
+            Card(
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.CardSurface),
+                border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = OpenScribeColors.SagePrimary,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("About OpenScribe", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "OpenScribe Android v1.0.0",
+                                color = OpenScribeColors.SagePrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Live AI video translation powered by Whisper large-v3 on Google Colab T4 & libmpv",
+                        color = OpenScribeColors.TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+
+                    HorizontalDivider(color = OpenScribeColors.WarmBorder.copy(alpha = 0.7f))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Created by",
+                            color = OpenScribeColors.TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "writtenwithharmony@gmail.com",
+                            color = OpenScribeColors.TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+
+                    Surface(
+                        color = OpenScribeColors.SkyContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                runCatching {
+                                    uriHandler.openUri("https://github.com/22-db-22/openscribe-android")
+                                }
+                            },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "GitHub Repository",
+                                    color = OpenScribeColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "github.com/22-db-22/openscribe-android",
+                                    color = OpenScribeColors.SkyTextStrong,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Open GitHub Repository",
+                                tint = OpenScribeColors.SkyTextStrong,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = OpenScribeColors.WarmBorder.copy(alpha = 0.7f))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Credits & Open Source Licenses",
+                            color = OpenScribeColors.TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "• Whisper & faster-whisper (MIT)\n" +
+                                "• google-colab-cli runtime protocol\n" +
+                                "• libmpv embedded hardware video player (LGPL/GPL)\n" +
+                                "• youtubedl-android — yt-dlp & FFmpeg (GPL/Unlicense)",
+                            color = OpenScribeColors.TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                        )
                     }
                 }
             }

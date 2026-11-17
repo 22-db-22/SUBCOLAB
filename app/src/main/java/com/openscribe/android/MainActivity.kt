@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,8 +26,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -63,12 +67,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(
+                scrim = android.graphics.Color.TRANSPARENT,
+                darkScrim = android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.light(
+                scrim = android.graphics.Color.TRANSPARENT,
+                darkScrim = android.graphics.Color.TRANSPARENT,
+            ),
+        )
         requestNotificationPermissionIfNeeded()
         handleIncomingIntent(intent)
 
         setContent {
             OpenScribeTheme {
+                val rootView = LocalView.current
+                LaunchedEffect(currentRoute) {
+                    val isLightBars = currentRoute != "player"
+                    val insetsController = WindowCompat.getInsetsController(window, rootView)
+                    insetsController.isAppearanceLightStatusBars = isLightBars
+                    insetsController.isAppearanceLightNavigationBars = isLightBars
+                }
                 val navController = rememberNavController()
                 val urlInput by viewModel.urlInput.collectAsState()
                 val selectedLang by viewModel.selectedLang.collectAsState()
@@ -270,8 +290,8 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = OpenScribeColors.SubtitleYellow,
-                                    contentColor = OpenScribeColors.Obsidian,
+                                    containerColor = OpenScribeColors.SagePrimary,
+                                    contentColor = Color.White,
                                 ),
                             ) {
                                 Text("Watch Now", fontWeight = FontWeight.Bold)

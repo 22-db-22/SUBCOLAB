@@ -33,17 +33,17 @@ export function BuildGuideView() {
         return (
           <div
             key={step.title}
-            className="rounded-2xl border border-slate-800 bg-[#131A26] p-5"
+            className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm"
           >
             <div className="flex items-start gap-3.5">
-              <div className="rounded-xl bg-amber-400/10 p-2.5 text-amber-400">
+              <div className="rounded-xl bg-[#DCEFE5] p-2.5 text-[#2E7D5B]">
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-sm font-semibold text-slate-100">{step.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{step.body}</p>
+                <h3 className="text-sm font-semibold text-[#1C2621]">{step.title}</h3>
+                <p className="mt-1.5 text-xs leading-relaxed text-[#5A6860]">{step.body}</p>
                 {step.code && (
-                  <pre className="mt-3 overflow-x-auto rounded-xl border border-slate-800 bg-[#0B0F17] p-3 font-mono text-[11px] text-sky-300">
+                  <pre className="mt-3 overflow-x-auto rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3 font-mono text-[11px] text-[#2B6CB0]">
                     {step.code}
                   </pre>
                 )}

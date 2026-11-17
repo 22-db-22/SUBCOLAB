@@ -311,7 +311,7 @@ fun PlayerScreen(
                     Icon(
                         imageVector = if (gestureHudIsBrightness) Icons.Default.Brightness6 else Icons.Default.VolumeUp,
                         contentDescription = null,
-                        tint = OpenScribeColors.SubtitleYellow,
+                        tint = OpenScribeColors.CinemaSubtitleYellow,
                     )
                     Text(
                         text = gestureHudLabel.orEmpty(),
@@ -341,12 +341,12 @@ fun PlayerScreen(
                 ) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = OpenScribeColors.SubtitleYellow,
+                        color = OpenScribeColors.CinemaSubtitleYellow,
                         strokeWidth = 2.5.dp,
                     )
                     Text(
                         text = playerState.bufferingMessage ?: "Opening video...",
-                        color = OpenScribeColors.TextPrimary,
+                        color = Color.White,
                         fontSize = 13.sp,
                     )
                 }
@@ -381,7 +381,7 @@ fun PlayerScreen(
                     ) {
                         Text(
                             text = playerState.error.orEmpty(),
-                            color = OpenScribeColors.TextPrimary,
+                            color = Color.White,
                             fontSize = 13.sp,
                         )
                     }
@@ -389,19 +389,19 @@ fun PlayerScreen(
                         Button(
                             onClick = { controller.retryLoad() },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = OpenScribeColors.SubtitleYellow,
-                                contentColor = OpenScribeColors.Obsidian,
+                                containerColor = OpenScribeColors.CinemaSubtitleYellow,
+                                contentColor = Color(0xFF1A1200),
                             ),
                         ) {
                             Text("Retry", fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = onOpenDebugLogs) {
-                            Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp), tint = OpenScribeColors.GpuCyan)
+                            Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp), tint = OpenScribeColors.CinemaSkyBlue)
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Logs", color = OpenScribeColors.GpuCyan)
+                            Text("Logs", color = OpenScribeColors.CinemaSkyBlue)
                         }
                         TextButton(onClick = onBack) {
-                            Text("Back", color = OpenScribeColors.TextPrimary)
+                            Text("Back", color = Color.White)
                         }
                     }
                 }
@@ -469,11 +469,11 @@ fun PlayerScreen(
                         Text(
                             text = trackLabel,
                             color = if (playerState.activeSubtitleTrack == "off") {
-                                OpenScribeColors.TextSecondary
+                                Color(0xFFCBD5E1)
                             } else if (playerState.activeSubtitleTrack == "orig") {
-                                OpenScribeColors.GpuCyan
+                                OpenScribeColors.CinemaSkyBlue
                             } else {
-                                OpenScribeColors.SubtitleYellow
+                                OpenScribeColors.CinemaSubtitleYellow
                             },
                             fontSize = 12.sp,
                             maxLines = 1,
@@ -484,9 +484,9 @@ fun PlayerScreen(
                             imageVector = if (playerState.subtitlesEnabled) Icons.Default.ClosedCaption else Icons.Default.ClosedCaptionDisabled,
                             contentDescription = "Cycle Subtitles (EN / Orig / Off)",
                             tint = when (playerState.activeSubtitleTrack) {
-                                "orig" -> OpenScribeColors.GpuCyan
+                                "orig" -> OpenScribeColors.CinemaSkyBlue
                                 "off" -> Color.White
-                                else -> OpenScribeColors.SubtitleYellow
+                                else -> OpenScribeColors.CinemaSubtitleYellow
                             },
                             modifier = Modifier.size(20.dp),
                         )
@@ -498,9 +498,9 @@ fun PlayerScreen(
                                 else -> "EN"
                             },
                             color = when (playerState.activeSubtitleTrack) {
-                                "orig" -> OpenScribeColors.GpuCyan
+                                "orig" -> OpenScribeColors.CinemaSkyBlue
                                 "off" -> Color.White
-                                else -> OpenScribeColors.SubtitleYellow
+                                else -> OpenScribeColors.CinemaSubtitleYellow
                             },
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
@@ -545,7 +545,7 @@ fun PlayerScreen(
                         onClick = { controller.togglePlayPause() },
                         modifier = Modifier
                             .size(68.dp)
-                            .background(OpenScribeColors.SubtitleYellow, CircleShape),
+                            .background(OpenScribeColors.CinemaSubtitleYellow, CircleShape),
                     ) {
                         Icon(
                             imageVector = if (playerState.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
@@ -587,8 +587,8 @@ fun PlayerScreen(
                         },
                         valueRange = 0f..duration,
                         colors = SliderDefaults.colors(
-                            thumbColor = OpenScribeColors.SubtitleYellow,
-                            activeTrackColor = OpenScribeColors.SubtitleYellow,
+                            thumbColor = OpenScribeColors.CinemaSubtitleYellow,
+                            activeTrackColor = OpenScribeColors.CinemaSubtitleYellow,
                             inactiveTrackColor = Color(0x55FFFFFF),
                         ),
                     )
@@ -603,7 +603,7 @@ fun PlayerScreen(
                         )
                         Text(
                             text = formatMmSs(playerState.durationSec),
-                            color = OpenScribeColors.TextSecondary,
+                            color = Color(0xFFCBD5E1),
                             fontSize = 12.sp,
                         )
                     }

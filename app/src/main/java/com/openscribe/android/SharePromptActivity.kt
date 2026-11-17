@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -163,7 +164,7 @@ private fun ShareOverlayCard(
 
             Text(
                 text = cleanUrl,
-                color = OpenScribeColors.GpuCyan,
+                color = OpenScribeColors.SkyTextStrong,
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -181,9 +182,14 @@ private fun ShareOverlayCard(
                     fontSize = 13.sp,
                 )
                 TextButton(onClick = { showLanguagePicker = true }) {
-                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = OpenScribeColors.SkyTextStrong,
+                        modifier = Modifier.size(15.dp),
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("All ~99", color = OpenScribeColors.GpuCyan, fontSize = 12.sp)
+                    Text("All ~99", color = OpenScribeColors.SkyTextStrong, fontSize = 12.sp)
                 }
             }
 
@@ -234,19 +240,19 @@ private fun ShareOverlayCard(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.8f)),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Download,
                         contentDescription = null,
-                        tint = OpenScribeColors.GpuCyan,
+                        tint = OpenScribeColors.SkyTextStrong,
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "Download",
-                        color = OpenScribeColors.GpuCyan,
+                        color = OpenScribeColors.SkyTextStrong,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
                     )
@@ -256,10 +262,10 @@ private fun ShareOverlayCard(
                     modifier = Modifier
                         .weight(1.25f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = OpenScribeColors.SubtitleYellow,
-                        contentColor = OpenScribeColors.Obsidian,
+                        containerColor = OpenScribeColors.SagePrimary,
+                        contentColor = Color.White,
                     ),
                 ) {
                     Icon(

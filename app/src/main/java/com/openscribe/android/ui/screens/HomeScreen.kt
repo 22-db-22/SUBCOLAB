@@ -36,15 +36,21 @@ import androidx.compose.material.icons.filled.AddLink
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
@@ -95,8 +101,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,11 +158,13 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
 
     var showLanguagePickerDialog by remember { mutableStateOf(false) }
     var languagePickerTargetForPack by remember { mutableStateOf<((String) -> Unit)?>(null) }
+    var showAboutDialog by remember { mutableStateOf(false) }
 
     var videoResolutionDialogPack by remember { mutableStateOf<SavedPack?>(null) }
     var subtitleOptionsDialogPack by remember { mutableStateOf<SavedPack?>(null) }
@@ -202,7 +212,7 @@ fun HomeScreen(
                                 Icon(
                                     imageVector = Icons.Default.ClosedCaption,
                                     contentDescription = null,
-                                    tint = OpenScribeColors.Obsidian,
+                                    tint = Color.White,
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
@@ -217,20 +227,27 @@ fun HomeScreen(
                                     text = if (jobState.isGpuWarm) {
                                         "T4 GPU Warm • ${jobState.gpuRuntimeLabel ?: "Connected"}"
                                     } else {
-                                        "Offline Video + Dual Subtitles"
+                                        "Live AI Video Translator"
                                     },
                                     fontSize = 11.sp,
-                                    color = if (jobState.isGpuWarm) OpenScribeColors.SuccessGreen else OpenScribeColors.TextSecondary,
+                                    color = if (jobState.isGpuWarm) OpenScribeColors.SkyTextStrong else OpenScribeColors.TextSecondary,
                                 )
                             }
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showAboutDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "About OpenScribe",
+                                tint = OpenScribeColors.TextSecondary,
+                            )
+                        }
                         IconButton(onClick = onOpenDebugLogs) {
                             Icon(
                                 imageVector = Icons.Default.BugReport,
                                 contentDescription = "Crash & Debug Logs",
-                                tint = if (!lastCrashText.isNullOrBlank()) OpenScribeColors.DangerRed else OpenScribeColors.GpuCyan,
+                                tint = if (!lastCrashText.isNullOrBlank()) OpenScribeColors.DangerRed else OpenScribeColors.SkyTextStrong,
                             )
                         }
                         IconButton(onClick = onOpenSettings) {
@@ -496,6 +513,112 @@ fun HomeScreen(
             }
         }
     }
+
+    if (showAboutDialog) {
+        Dialog(onDismissRequest = { showAboutDialog = false }) {
+            Surface(
+                color = OpenScribeColors.CardSurface,
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(OpenScribeColors.SagePrimary),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ClosedCaption,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "OpenScribe Android",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = "v1.0.0",
+                                color = OpenScribeColors.SagePrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        IconButton(onClick = { showAboutDialog = false }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = OpenScribeColors.TextSecondary,
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Live AI video translation powered by Whisper large-v3 on Google Colab T4 & libmpv.",
+                        color = OpenScribeColors.TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                    HorizontalDivider(color = OpenScribeColors.WarmBorder)
+                    Text(
+                        text = "Created by: writtenwithharmony@gmail.com",
+                        color = OpenScribeColors.TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Surface(
+                        color = OpenScribeColors.SkyContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                runCatching {
+                                    uriHandler.openUri("https://github.com/22-db-22/openscribe-android")
+                                }
+                            },
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "github.com/22-db-22/openscribe-android",
+                                color = OpenScribeColors.SkyTextStrong,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Icon(
+                                imageVector = Icons.Default.OpenInNew,
+                                contentDescription = "Open GitHub",
+                                tint = OpenScribeColors.SkyTextStrong,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Credits: Whisper / faster-whisper, google-colab-cli protocol, libmpv, youtubedl-android (yt-dlp + FFmpeg).",
+                        color = OpenScribeColors.TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -532,6 +655,8 @@ private fun TranslateTabContent(
 ) {
     val context = LocalContext.current
     var overlayBannerDismissed by remember { mutableStateOf(false) }
+    var quickTipsDismissed by remember { mutableStateOf(false) }
+    var quickTipsExpanded by remember { mutableStateOf(false) }
     val needsOverlayPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         !runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
 
@@ -641,8 +766,8 @@ private fun TranslateTabContent(
         // Auto-Open Over Other Apps Permission Banner (needed on Android 10+ so Watch Now pops over YouTube)
         if (needsOverlayPermission && !overlayBannerDismissed) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.GpuCyanDark.copy(alpha = 0.35f)),
-                border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.5f)),
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SkyContainer),
+                border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.55f)),
                 shape = RoundedCornerShape(16.dp),
             ) {
                 Row(
@@ -651,12 +776,12 @@ private fun TranslateTabContent(
                         .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OpenScribeColors.GpuCyan)
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OpenScribeColors.SkyTextStrong)
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Auto-Open Over Other Apps",
-                            color = OpenScribeColors.GpuCyan,
+                            color = OpenScribeColors.SkyTextStrong,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                         )
@@ -677,10 +802,109 @@ private fun TranslateTabContent(
                             }
                         },
                     ) {
-                        Text("Allow", color = OpenScribeColors.GpuCyan, fontWeight = FontWeight.Bold)
+                        Text("Allow", color = OpenScribeColors.SkyTextStrong, fontWeight = FontWeight.Bold)
                     }
                     TextButton(onClick = { overlayBannerDismissed = true }) {
                         Text("Later", color = OpenScribeColors.TextSecondary, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // Collapsible / Dismissible Quick Tips Card
+        if (!quickTipsDismissed) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.CardSurface),
+                border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { quickTipsExpanded = !quickTipsExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            color = OpenScribeColors.SkyContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.SkyTextStrong,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Quick Tips",
+                                color = OpenScribeColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                            )
+                            if (!quickTipsExpanded) {
+                                Text(
+                                    text = "Share directly from YouTube -> OpenScribe, or swipe in player for brightness & volume",
+                                    color = OpenScribeColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = if (quickTipsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (quickTipsExpanded) "Collapse tips" else "Expand tips",
+                            tint = OpenScribeColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        IconButton(
+                            onClick = { quickTipsDismissed = true },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss tips",
+                                tint = OpenScribeColors.TextSecondary,
+                                modifier = Modifier.size(15.dp),
+                            )
+                        }
+                    }
+
+                    if (quickTipsExpanded) {
+                        Column(
+                            modifier = Modifier.padding(start = 38.dp, bottom = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = "• Share any video from YouTube -> OpenScribe and pick Watch Now (live stream) or Download (full MP4).",
+                                color = OpenScribeColors.TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                            Text(
+                                text = "• Inside the player, swipe up/down on the left for brightness, right for volume, or double-tap ±10s.",
+                                color = OpenScribeColors.TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                            Text(
+                                text = "• Leave the T4 GPU warm between videos for faster ~15s subtitle start.",
+                                color = OpenScribeColors.TextSecondary,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -809,11 +1033,11 @@ private fun TranslateTabContent(
                             .weight(1f)
                             .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                        border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.8f)),
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = OpenScribeColors.GpuCyan, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Download, contentDescription = null, tint = OpenScribeColors.SkyTextStrong, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download", color = OpenScribeColors.GpuCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Download", color = OpenScribeColors.SkyTextStrong, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
 
                     Button(
@@ -824,8 +1048,8 @@ private fun TranslateTabContent(
                             .height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = OpenScribeColors.SubtitleYellow,
-                            contentColor = OpenScribeColors.Obsidian,
+                            containerColor = OpenScribeColors.SagePrimary,
+                            contentColor = Color.White,
                         ),
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -921,8 +1145,8 @@ private fun TranslateTabContent(
                             .height(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = OpenScribeColors.GpuCyan,
-                            contentColor = OpenScribeColors.Obsidian,
+                            containerColor = OpenScribeColors.SagePrimary,
+                            contentColor = Color.White,
                         ),
                     ) {
                         Icon(Icons.Default.ClosedCaption, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1495,8 +1719,8 @@ private fun DownloadsTabContent(
                                 .height(42.dp),
                             shape = RoundedCornerShape(11.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = OpenScribeColors.SubtitleYellow,
-                                contentColor = OpenScribeColors.Obsidian,
+                                containerColor = OpenScribeColors.SagePrimary,
+                                contentColor = Color.White,
                                 disabledContainerColor = OpenScribeColors.SurfaceElevated,
                                 disabledContentColor = OpenScribeColors.TextSecondary,
                             ),

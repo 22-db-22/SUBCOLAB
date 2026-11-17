@@ -2,7 +2,7 @@ package com.openscribe.android.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -10,38 +10,59 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 object OpenScribeColors {
-    val Obsidian = Color(0xFF0B0F17)
-    val SurfaceDark = Color(0xFF131A26)
-    val SurfaceElevated = Color(0xFF1B2434)
-    val BorderSubtle = Color(0xFF283449)
-    val SubtitleYellow = Color(0xFFFBBF24)
-    val SubtitleYellowDark = Color(0xFF423007)
-    val GpuCyan = Color(0xFF38BDF8)
-    val GpuCyanDark = Color(0xFF0A2E40)
-    val SuccessGreen = Color(0xFF34D399)
-    val DangerRed = Color(0xFFF87171)
-    val TextPrimary = Color(0xFFF8FAFC)
-    val TextSecondary = Color(0xFF94A3B8)
+    // Calm "Cream + Sage Green + Soft Sky Blue" Palette
+    val CreamBg = Color(0xFFFAF7F0)
+    val CardSurface = Color(0xFFFFFFFF)
+    val CardSurfaceAlt = Color(0xFFF1ECE1)
+    val WarmBorder = Color(0xFFE2DCCD)
+
+    val SagePrimary = Color(0xFF2E7D5B)
+    val SageContainer = Color(0xFFDCEFE5)
+    val SkyAccent = Color(0xFF5B9BD5)
+    val SkyContainer = Color(0xFFDDF0FB)
+    val SkyTextStrong = Color(0xFF2B6CB0)
+
+    val TextPrimary = Color(0xFF1C2621)
+    val TextSecondary = Color(0xFF5A6860)
+    val SuccessGreen = Color(0xFF16A34A)
+    val DangerRed = Color(0xFFDC2626)
+
+    // Cinema Player Exception (always dark background + high-contrast yellow subtitles)
+    val CinemaBackground = Color(0xFF000000)
+    val CinemaSubtitleYellow = Color(0xFFFFFF00)
+    val CinemaSkyBlue = Color(0xFF7CC4FA)
+
+    // Preserved semantic aliases so all existing screens adopt the Cream + Sage + Sky palette seamlessly
+    val Obsidian = CreamBg
+    val SurfaceDark = CardSurface
+    val SurfaceElevated = CardSurfaceAlt
+    val BorderSubtle = WarmBorder
+    val SubtitleYellow = SagePrimary
+    val SubtitleYellowDark = SageContainer
+    val GpuCyan = SkyAccent
+    val GpuCyanDark = SkyContainer
 }
 
-private val DarkColorScheme = darkColorScheme(
-    primary = OpenScribeColors.SubtitleYellow,
-    onPrimary = Color(0xFF1A1200),
-    primaryContainer = OpenScribeColors.SubtitleYellowDark,
-    onPrimaryContainer = OpenScribeColors.SubtitleYellow,
-    secondary = OpenScribeColors.GpuCyan,
-    onSecondary = Color(0xFF001F2E),
-    secondaryContainer = OpenScribeColors.GpuCyanDark,
-    onSecondaryContainer = OpenScribeColors.GpuCyan,
+private val LightColorScheme = lightColorScheme(
+    primary = OpenScribeColors.SagePrimary,
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = OpenScribeColors.SageContainer,
+    onPrimaryContainer = OpenScribeColors.SagePrimary,
+    secondary = OpenScribeColors.SkyAccent,
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = OpenScribeColors.SkyContainer,
+    onSecondaryContainer = OpenScribeColors.SkyTextStrong,
     tertiary = OpenScribeColors.SuccessGreen,
-    background = OpenScribeColors.Obsidian,
+    onTertiary = Color(0xFFFFFFFF),
+    background = OpenScribeColors.CreamBg,
     onBackground = OpenScribeColors.TextPrimary,
-    surface = OpenScribeColors.SurfaceDark,
+    surface = OpenScribeColors.CardSurface,
     onSurface = OpenScribeColors.TextPrimary,
-    surfaceVariant = OpenScribeColors.SurfaceElevated,
+    surfaceVariant = OpenScribeColors.CardSurfaceAlt,
     onSurfaceVariant = OpenScribeColors.TextSecondary,
-    outline = OpenScribeColors.BorderSubtle,
+    outline = OpenScribeColors.WarmBorder,
     error = OpenScribeColors.DangerRed,
+    onError = Color(0xFFFFFFFF),
 )
 
 private val OpenScribeTypography = Typography(
@@ -81,7 +102,7 @@ private val OpenScribeTypography = Typography(
 @Composable
 fun OpenScribeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = LightColorScheme,
         typography = OpenScribeTypography,
         content = content,
     )
