@@ -40,14 +40,19 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 
 ----
 ## ScreenShots
-<img width="1080" height="2311" alt="RDT_20261118_1932147655144803326012437" src="https://github.com/user-attachments/assets/7cc933db-1305-4d4b-aa64-fe8dc1775b59" />
-<img width="1080" height="2409" alt="RDT_20261118_1932187777851414789354055" src="https://github.com/user-attachments/assets/a08827db-95ba-4408-80a8-a9672776c2dc" />
-<img width="1080" height="2409" alt="RDT_20261118_193221780612860362902542" src="https://github.com/user-attachments/assets/ba7b2b76-700e-42e9-9c5d-2e5835c56db2" />
-<img width="1080" height="2241" alt="RDT_20261118_1932274437533685457025997" src="https://github.com/user-attachments/assets/dd179077-8f2e-4133-b84b-2b13e6fd9e83" />
-<img width="1080" height="1512" alt="RDT_20261118_1932302427595037493102202" src="https://github.com/user-attachments/assets/7c009d6a-cb01-456e-b652-07f2dca6a9a9" />
-<img width="1080" height="2241" alt="Screenshot_20261118_193823_SUBCOLAB" src="https://github.com/user-attachments/assets/68601831-757c-4eec-9605-88762454aab5" />
-<img width="1080" height="2240" alt="Screenshot_20261118_193808_SUBCOLAB" src="https://github.com/user-attachments/assets/36dca93a-b988-4128-95a6-41100be94c7b" />
-<img width="1080" height="2248" alt="Screenshot_20261118_193813_SUBCOLAB" src="https://github.com/user-attachments/assets/fe428a02-9fc9-4324-b0c7-758bd0aa1320" />
+<p align="center">
+  <img width="200" alt="Home Screen" src="https://github.com/user-attachments/assets/7cc933db-1305-4d4b-aa64-fe8dc1775b59" />
+  <img width="200" alt="Share Overlay" src="https://github.com/user-attachments/assets/dd179077-8f2e-4133-b84b-2b13e6fd9e83" />
+  <img width="200" alt="Translating" src="https://github.com/user-attachments/assets/7c009d6a-cb01-456e-b652-07f2dca6a9a9" />
+  <img width="200" alt="Downloads" src="https://github.com/user-attachments/assets/68601831-757c-4eec-9605-88762454aab5" />
+</p>
+
+<p align="center">
+  <img width="200" alt="Video Quality" src="https://github.com/user-attachments/assets/36dca93a-b988-4128-95a6-41100be94c7b" />
+  <img width="200" alt="Subtitle Options" src="https://github.com/user-attachments/assets/fe428a02-9fc9-4324-b0c7-758bd0aa1320" />
+  <img width="200" alt="Settings Theme" src="https://github.com/user-attachments/assets/a08827db-95ba-4408-80a8-a9672776c2dc" />
+  <img width="200" alt="Settings Engine" src="https://github.com/user-attachments/assets/ba7b2b76-700e-42e9-9c5d-2e5835c56db2" />
+</p>
 
 ----
 
