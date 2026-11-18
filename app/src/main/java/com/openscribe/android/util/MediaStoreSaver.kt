@@ -14,22 +14,23 @@ data class SavedMediaResult(
 )
 
 /**
- * Saves MP4 and SRT/ASS/VTT files into per-video subfolders under Downloads/OpenScribe/<shortTitle>/
+ * Saves MP4 and SRT/ASS/VTT files into per-video subfolders under Downloads/SUBCOLAB/<shortTitle>/
  * using scoped MediaStore APIs on Android 10+ (API 29+) — requiring ZERO MANAGE_EXTERNAL_STORAGE.
  */
 object MediaStoreSaver {
 
-    private const val ROOT_RELATIVE = "Download/OpenScribe"
+    private const val ROOT_FOLDER_NAME = "SUBCOLAB"
+    private const val ROOT_RELATIVE = "Download/$ROOT_FOLDER_NAME"
 
     fun buildShortFolderName(rawSlug: String): String {
         val cleaned = rawSlug
             .replace(Regex("[^A-Za-z0-9._-]+"), "_")
             .trim('_', '.', '-')
             .replace(Regex("_+"), "_")
-        if (cleaned.isBlank()) return "OpenScribe_Video"
+        if (cleaned.isBlank()) return "SUBCOLAB_Video"
         if (cleaned.length <= 40) return cleaned
         val cut = cleaned.take(40).substringBeforeLast('_')
-        return (if (cut.length >= 12) cut else cleaned.take(40)).trim('_').ifBlank { "OpenScribe_Video" }
+        return (if (cut.length >= 12) cut else cleaned.take(40)).trim('_').ifBlank { "SUBCOLAB_Video" }
     }
 
     private fun resolveRelativePath(subfolder: String): String {
@@ -40,9 +41,9 @@ object MediaStoreSaver {
     private fun resolveDisplayPath(subfolder: String, fileName: String): String {
         val cleanSub = subfolder.trim().trim('/').replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_')
         return if (cleanSub.isBlank()) {
-            "Downloads/OpenScribe/$fileName"
+            "Downloads/$ROOT_FOLDER_NAME/$fileName"
         } else {
-            "Downloads/OpenScribe/$cleanSub/$fileName"
+            "Downloads/$ROOT_FOLDER_NAME/$cleanSub/$fileName"
         }
     }
 
@@ -61,7 +62,7 @@ object MediaStoreSaver {
         } else {
             val baseDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "OpenScribe",
+                ROOT_FOLDER_NAME,
             )
             val targetDir = if (subfolder.isNotBlank()) File(baseDir, subfolder) else baseDir
             targetDir.mkdirs()
@@ -88,7 +89,7 @@ object MediaStoreSaver {
         } else {
             val baseDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "OpenScribe",
+                ROOT_FOLDER_NAME,
             )
             val targetDir = if (subfolder.isNotBlank()) File(baseDir, subfolder) else baseDir
             targetDir.mkdirs()
@@ -125,7 +126,7 @@ object MediaStoreSaver {
         if (subfolder.isBlank() || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
         runCatching {
             val dir = File(
-                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "OpenScribe"),
+                File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), ROOT_FOLDER_NAME),
                 subfolder,
             )
             if (dir.isDirectory && dir.listFiles().isNullOrEmpty()) {

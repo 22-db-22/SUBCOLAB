@@ -81,6 +81,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
@@ -91,7 +93,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -107,6 +111,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -573,7 +578,7 @@ fun HomeScreen(
                     )
                     HorizontalDivider(color = OpenScribeColors.WarmBorder)
                     Text(
-                        text = "Created by: writtenwithharmony@gmail.com",
+                        text = "Created by: 22-db-22",
                         color = OpenScribeColors.TextPrimary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
@@ -621,6 +626,31 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeDismissibleBanner(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd || value == SwipeToDismissBoxValue.EndToStart) {
+                onDismiss()
+                true
+            } else {
+                false
+            }
+        },
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {},
+        content = { content() },
+    )
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TranslateTabContent(
@@ -657,8 +687,20 @@ private fun TranslateTabContent(
     var overlayBannerDismissed by remember { mutableStateOf(false) }
     var quickTipsDismissed by remember { mutableStateOf(false) }
     var quickTipsExpanded by remember { mutableStateOf(false) }
+    var jobResultDismissed by remember { mutableStateOf(false) }
+    var previousCardDismissed by remember { mutableStateOf(false) }
     val needsOverlayPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
         !runCatching { Settings.canDrawOverlays(context) }.getOrDefault(false)
+
+    // Automatically re-show job result banner when a new job starts or finishes
+    LaunchedEffect(jobState.phase, jobState.activePackId, jobState.titleSlug, jobState.cueCount) {
+        jobResultDismissed = false
+    }
+
+    // Automatically re-show Previous Pack / Warm Session card when a new previous job is recorded or GPU warms up
+    LaunchedEffect(jobState.previousJob, jobState.isGpuWarm) {
+        previousCardDismissed = false
+    }
 
     Column(
         modifier = Modifier
@@ -667,61 +709,63 @@ private fun TranslateTabContent(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Last Uncaught Crash Banner
+        // Last Uncaught Crash Banner (swipe-to-dismiss)
         if (!lastCrashText.isNullOrBlank()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.DangerRed.copy(alpha = 0.14f)),
-                border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.7f)),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            SwipeDismissibleBanner(onDismiss = onDismissLastCrash) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.DangerRed.copy(alpha = 0.14f)),
+                    border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(16.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = OpenScribeColors.DangerRed)
-                        Spacer(modifier = Modifier.width(8.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = OpenScribeColors.DangerRed)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Previous Crash Captured",
+                                color = OpenScribeColors.DangerRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onDismissLastCrash) {
+                                Text("Dismiss", color = OpenScribeColors.TextSecondary, fontSize = 12.sp)
+                            }
+                        }
                         Text(
-                            text = "Previous Crash Captured",
-                            color = OpenScribeColors.DangerRed,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            modifier = Modifier.weight(1f),
+                            text = lastCrashText.lineSequence()
+                                .firstOrNull { it.contains("Exception") || it.contains("Error") || it.startsWith("Caused by") }
+                                ?: lastCrashText.lineSequence().take(2).joinToString(" "),
+                            color = OpenScribeColors.TextPrimary,
+                            fontSize = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                        TextButton(onClick = onDismissLastCrash) {
-                            Text("Dismiss", color = OpenScribeColors.TextSecondary, fontSize = 12.sp)
-                        }
-                    }
-                    Text(
-                        text = lastCrashText.lineSequence()
-                            .firstOrNull { it.contains("Exception") || it.contains("Error") || it.startsWith("Caused by") }
-                            ?: lastCrashText.lineSequence().take(2).joinToString(" "),
-                        color = OpenScribeColors.TextPrimary,
-                        fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onOpenDebugLogs,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = OpenScribeColors.DangerRed,
-                                contentColor = OpenScribeColors.Obsidian,
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                        ) {
-                            Text("View Crash & Logs", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        OutlinedButton(
-                            onClick = onCopyAllLogs,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = OpenScribeColors.TextPrimary, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy All Logs", color = OpenScribeColors.TextPrimary, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onOpenDebugLogs,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = OpenScribeColors.DangerRed,
+                                    contentColor = OpenScribeColors.Obsidian,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("View Crash & Logs", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = onCopyAllLogs,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = OpenScribeColors.TextPrimary, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy All Logs", color = OpenScribeColors.TextPrimary, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -763,217 +807,158 @@ private fun TranslateTabContent(
             }
         }
 
-        // Auto-Open Over Other Apps Permission Banner (needed on Android 10+ so Watch Now pops over YouTube)
+        // Auto-Open Over Other Apps Permission Banner (swipe-to-dismiss)
         if (needsOverlayPermission && !overlayBannerDismissed) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SkyContainer),
-                border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.55f)),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OpenScribeColors.SkyTextStrong)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Auto-Open Over Other Apps",
-                            color = OpenScribeColors.SkyTextStrong,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                        )
-                        Text(
-                            text = "Allow once so Watch Now opens automatically over YouTube when initial subs arrive.",
-                            color = OpenScribeColors.TextPrimary,
-                            fontSize = 11.sp,
-                        )
-                    }
-                    TextButton(
-                        onClick = {
-                            runCatching {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}"),
-                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-                                context.startActivity(intent)
-                            }
-                        },
-                    ) {
-                        Text("Allow", color = OpenScribeColors.SkyTextStrong, fontWeight = FontWeight.Bold)
-                    }
-                    TextButton(onClick = { overlayBannerDismissed = true }) {
-                        Text("Later", color = OpenScribeColors.TextSecondary, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-
-        // Collapsible / Dismissible Quick Tips Card
-        if (!quickTipsDismissed) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.CardSurface),
-                border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+            SwipeDismissibleBanner(onDismiss = { overlayBannerDismissed = true }) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SkyContainer),
+                    border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.55f)),
+                    shape = RoundedCornerShape(16.dp),
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { quickTipsExpanded = !quickTipsExpanded },
+                            .padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Surface(
-                            color = OpenScribeColors.SkyContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = null,
-                                    tint = OpenScribeColors.SkyTextStrong,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = OpenScribeColors.SkyTextStrong)
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Quick Tips",
-                                color = OpenScribeColors.TextPrimary,
+                                text = "Auto-Open Over Other Apps",
+                                color = OpenScribeColors.SkyTextStrong,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
                             )
-                            if (!quickTipsExpanded) {
+                            Text(
+                                text = "Allow once so Watch Now opens automatically over YouTube when initial subs arrive.",
+                                color = OpenScribeColors.TextPrimary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        TextButton(
+                            onClick = {
+                                runCatching {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    context.startActivity(intent)
+                                }
+                            },
+                        ) {
+                            Text("Allow", color = OpenScribeColors.SkyTextStrong, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = { overlayBannerDismissed = true }) {
+                            Text("Later", color = OpenScribeColors.TextSecondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collapsible / Swipe-to-Dismiss Quick Tips Card
+        if (!quickTipsDismissed) {
+            SwipeDismissibleBanner(onDismiss = { quickTipsDismissed = true }) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.CardSurface),
+                    border = BorderStroke(1.dp, OpenScribeColors.WarmBorder),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { quickTipsExpanded = !quickTipsExpanded },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                color = OpenScribeColors.SkyContainer,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lightbulb,
+                                        contentDescription = null,
+                                        tint = OpenScribeColors.SkyTextStrong,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Share directly from YouTube -> SUBCOLAB, or swipe in player for brightness & volume",
-                                    color = OpenScribeColors.TextSecondary,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    text = "Quick Tips",
+                                    color = OpenScribeColors.TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                )
+                                if (!quickTipsExpanded) {
+                                    Text(
+                                        text = "Share directly from YouTube -> SUBCOLAB, or swipe in player for brightness & volume",
+                                        color = OpenScribeColors.TextSecondary,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            Icon(
+                                imageVector = if (quickTipsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (quickTipsExpanded) "Collapse tips" else "Expand tips",
+                                tint = OpenScribeColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            IconButton(
+                                onClick = { quickTipsDismissed = true },
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss tips",
+                                    tint = OpenScribeColors.TextSecondary,
+                                    modifier = Modifier.size(15.dp),
                                 )
                             }
                         }
-                        Icon(
-                            imageVector = if (quickTipsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (quickTipsExpanded) "Collapse tips" else "Expand tips",
-                            tint = OpenScribeColors.TextSecondary,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        IconButton(
-                            onClick = { quickTipsDismissed = true },
-                            modifier = Modifier.size(28.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss tips",
-                                tint = OpenScribeColors.TextSecondary,
-                                modifier = Modifier.size(15.dp),
-                            )
-                        }
-                    }
 
-                    if (quickTipsExpanded) {
-                        Column(
-                            modifier = Modifier.padding(start = 38.dp, bottom = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = "• Share any video from YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
-                                color = OpenScribeColors.TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp,
-                            )
-                            Text(
-                                text = "• Inside the player, swipe up/down on the left for brightness, right for volume, or double-tap ±10s.",
-                                color = OpenScribeColors.TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp,
-                            )
-                            Text(
-                                text = "• Leave the T4 GPU warm between videos for faster ~15s subtitle start.",
-                                color = OpenScribeColors.TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Source Language Selector Card
-        Card(
-            colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
-            border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
-            shape = RoundedCornerShape(18.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Spoken Language -> English",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    TextButton(onClick = onOpenAllLanguages) {
-                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("All ~99", color = OpenScribeColors.GpuCyan, fontSize = 12.sp)
-                    }
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    WhisperLanguages.quickChips.forEach { lang ->
-                        val isSelected = selectedLang.equals(lang.code, ignoreCase = true)
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onSelectLang(lang.code) },
-                            label = {
+                        if (quickTipsExpanded) {
+                            Column(
+                                modifier = Modifier.padding(start = 38.dp, bottom = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
                                 Text(
-                                    text = if (lang.code == "auto") "auto (Default)" else "${lang.code} • ${lang.name}",
-                                    fontSize = 12.sp,
+                                    text = "• Share any video from YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
+                                    color = OpenScribeColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp,
                                 )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = OpenScribeColors.SubtitleYellowDark,
-                                selectedLabelColor = OpenScribeColors.SubtitleYellow,
-                                containerColor = OpenScribeColors.SurfaceElevated,
-                                labelColor = OpenScribeColors.TextPrimary,
-                            ),
-                        )
-                    }
-                    if (WhisperLanguages.quickChips.none { it.code.equals(selectedLang, ignoreCase = true) }) {
-                        FilterChip(
-                            selected = true,
-                            onClick = onOpenAllLanguages,
-                            label = { Text("Selected: $selectedLang", fontSize = 12.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = OpenScribeColors.GpuCyanDark,
-                                selectedLabelColor = OpenScribeColors.GpuCyan,
-                            ),
-                        )
+                                Text(
+                                    text = "• Inside the player, swipe up/down on the left for brightness, right for volume, or double-tap ±10s.",
+                                    color = OpenScribeColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp,
+                                )
+                                Text(
+                                    text = "• Leave the T4 GPU warm between videos for faster ~15s subtitle start.",
+                                    color = OpenScribeColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Card 1: Paste Video Link
+        // Card 1: Paste Video Link (with integrated Spoken Language selector)
         Card(
             colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
             border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
@@ -1022,6 +1007,65 @@ private fun TranslateTabContent(
                     },
                 )
 
+                // Spoken Language selector integrated directly below URL input
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Spoken Language -> English",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = OpenScribeColors.TextPrimary,
+                        )
+                        TextButton(
+                            onClick = onOpenAllLanguages,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("All ~99", color = OpenScribeColors.GpuCyan, fontSize = 12.sp)
+                        }
+                    }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        WhisperLanguages.quickChips.forEach { lang ->
+                            val isSelected = selectedLang.equals(lang.code, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onSelectLang(lang.code) },
+                                label = {
+                                    Text(
+                                        text = if (lang.code == "auto") "auto (Default)" else "${lang.code} • ${lang.name}",
+                                        fontSize = 12.sp,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = OpenScribeColors.SubtitleYellowDark,
+                                    selectedLabelColor = OpenScribeColors.SubtitleYellow,
+                                    containerColor = OpenScribeColors.SurfaceElevated,
+                                    labelColor = OpenScribeColors.TextPrimary,
+                                ),
+                            )
+                        }
+                        if (WhisperLanguages.quickChips.none { it.code.equals(selectedLang, ignoreCase = true) }) {
+                            FilterChip(
+                                selected = true,
+                                onClick = onOpenAllLanguages,
+                                label = { Text("Selected: $selectedLang", fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = OpenScribeColors.GpuCyanDark,
+                                    selectedLabelColor = OpenScribeColors.GpuCyan,
+                                ),
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1031,30 +1075,52 @@ private fun TranslateTabContent(
                         enabled = urlInput.isNotBlank() && !isRunning,
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp),
+                            .heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.8f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     ) {
-                        Icon(Icons.Default.Download, contentDescription = null, tint = OpenScribeColors.SkyTextStrong, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Download", color = OpenScribeColors.SkyTextStrong, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = null,
+                            tint = OpenScribeColors.SkyTextStrong,
+                            modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Download",
+                            color = OpenScribeColors.SkyTextStrong,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
 
                     Button(
                         onClick = onStartWatchNowJob,
                         enabled = urlInput.isNotBlank() && !isRunning,
                         modifier = Modifier
-                            .weight(1.25f)
-                            .height(50.dp),
+                            .weight(1.2f)
+                            .heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = OpenScribeColors.SagePrimary,
                             contentColor = Color.White,
                         ),
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Watch Now", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Watch Now",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
@@ -1075,7 +1141,7 @@ private fun TranslateTabContent(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    text = "Already saved a video? Pick it to generate English subtitles and watch offline in OpenScribe.",
+                    text = "Already saved a video? Pick it to generate English subtitles using the spoken language selected above and watch offline in SUBCOLAB.",
                     fontSize = 12.sp,
                     color = OpenScribeColors.TextSecondary,
                 )
@@ -1118,22 +1184,24 @@ private fun TranslateTabContent(
                         enabled = !isRunning,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
+                            .heightIn(min = 48.dp),
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Default.FolderOpen,
                             contentDescription = null,
                             tint = OpenScribeColors.GpuCyan,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(17.dp),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (selectedLocalVideoUri == null) "Choose Video" else "Change",
                             color = OpenScribeColors.GpuCyan,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
                         )
                     }
 
@@ -1141,322 +1209,391 @@ private fun TranslateTabContent(
                         onClick = onStartLocalVideoJob,
                         enabled = selectedLocalVideoUri != null && !isRunning,
                         modifier = Modifier
-                            .weight(1.3f)
-                            .height(48.dp),
+                            .weight(1.25f)
+                            .heightIn(min = 48.dp),
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = OpenScribeColors.SagePrimary,
                             contentColor = Color.White,
                         ),
                     ) {
-                        Icon(Icons.Default.ClosedCaption, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Generate Subtitles", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Icon(Icons.Default.ClosedCaption, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Generate Subtitles",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
+                        )
                     }
                 }
             }
         }
 
-        // Active / Latest Job Progress Card
-        if (jobState.phase != JobPhase.IDLE) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
-                border = BorderStroke(
-                    1.dp,
-                    when (jobState.phase) {
-                        JobPhase.ERROR -> OpenScribeColors.DangerRed.copy(alpha = 0.6f)
-                        JobPhase.COMPLETED -> OpenScribeColors.SuccessGreen.copy(alpha = 0.6f)
-                        else -> OpenScribeColors.GpuCyan.copy(alpha = 0.5f)
-                    },
-                ),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+        // Active / Latest Job Progress Card (swipe-to-dismiss ONLY when not actively running)
+        if (jobState.phase != JobPhase.IDLE && (isRunning || !jobResultDismissed)) {
+            val jobStatusCardContent: @Composable () -> Unit = {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
+                    border = BorderStroke(
+                        1.dp,
+                        when (jobState.phase) {
+                            JobPhase.ERROR -> OpenScribeColors.DangerRed.copy(alpha = 0.6f)
+                            JobPhase.COMPLETED -> OpenScribeColors.SuccessGreen.copy(alpha = 0.6f)
+                            else -> OpenScribeColors.GpuCyan.copy(alpha = 0.5f)
+                        },
+                    ),
+                    shape = RoundedCornerShape(18.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        when {
-                            isRunning -> CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = OpenScribeColors.GpuCyan,
-                                strokeWidth = 2.5.dp,
-                            )
-                            jobState.phase == JobPhase.COMPLETED -> Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = OpenScribeColors.SuccessGreen,
-                            )
-                            jobState.phase == JobPhase.ERROR -> Icon(
-                                Icons.Default.ErrorOutline,
-                                contentDescription = null,
-                                tint = OpenScribeColors.DangerRed,
-                            )
-                            else -> Icon(
-                                Icons.Default.Memory,
-                                contentDescription = null,
-                                tint = OpenScribeColors.SubtitleYellow,
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = jobState.statusMessage,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = OpenScribeColors.TextPrimary,
-                            )
-                            val origPart = if (jobState.origCueCount > 0) {
-                                " + ${jobState.origCueCount} ${jobState.detectedOrigLang?.uppercase() ?: "orig"}"
-                            } else ""
-                            Text(
-                                text = "${jobState.titleSlug.replace('_', ' ')} • ${jobState.cueCount} EN$origPart cues",
-                                fontSize = 12.sp,
-                                color = OpenScribeColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-
-                    if (jobState.mode == WorkflowMode.DOWNLOAD_AND_TRANSLATE &&
-                        (isRunning || jobState.savePackStatus == SavePackStatus.SAVING)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    text = jobState.saveStatusText ?: "Video download",
-                                    fontSize = 11.sp,
-                                    color = OpenScribeColors.TextSecondary,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            when {
+                                isRunning -> CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = OpenScribeColors.GpuCyan,
+                                    strokeWidth = 2.5.dp,
                                 )
+                                jobState.phase == JobPhase.COMPLETED -> Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.SuccessGreen,
+                                )
+                                jobState.phase == JobPhase.ERROR -> Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.DangerRed,
+                                )
+                                else -> Icon(
+                                    Icons.Default.Memory,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.SubtitleYellow,
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "${jobState.saveProgressPercent}%",
+                                    text = jobState.statusMessage,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = OpenScribeColors.TextPrimary,
+                                )
+                                val origPart = if (jobState.origCueCount > 0) {
+                                    " + ${jobState.origCueCount} ${jobState.detectedOrigLang?.uppercase() ?: "orig"}"
+                                } else ""
+                                Text(
+                                    text = "${jobState.titleSlug.replace('_', ' ')} • ${jobState.cueCount} EN$origPart cues",
+                                    fontSize = 12.sp,
+                                    color = OpenScribeColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+
+                        if (jobState.mode == WorkflowMode.DOWNLOAD_AND_TRANSLATE &&
+                            (isRunning || jobState.savePackStatus == SavePackStatus.SAVING)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = jobState.saveStatusText ?: "Video download",
+                                        fontSize = 11.sp,
+                                        color = OpenScribeColors.TextSecondary,
+                                    )
+                                    Text(
+                                        text = "${jobState.saveProgressPercent}%",
+                                        fontSize = 11.sp,
+                                        color = OpenScribeColors.SubtitleYellow,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { (jobState.saveProgressPercent.coerceIn(0, 100) / 100f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp)),
+                                    color = OpenScribeColors.SubtitleYellow,
+                                    trackColor = OpenScribeColors.SurfaceElevated,
+                                )
+                            }
+                        }
+
+                        if (!jobState.translationProgressText.isNullOrBlank() && isRunning) {
+                            Text(
+                                text = "Subtitles: ${jobState.translationProgressText}",
+                                fontSize = 11.sp,
+                                color = OpenScribeColors.GpuCyan,
+                            )
+                            if (!jobState.chunkDownloadStatus.isNullOrBlank()) {
+                                Text(
+                                    text = "Stream: ${jobState.chunkDownloadStatus}",
                                     fontSize = 11.sp,
                                     color = OpenScribeColors.SubtitleYellow,
-                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                             LinearProgressIndicator(
-                                progress = { (jobState.saveProgressPercent.coerceIn(0, 100) / 100f) },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(4.dp)),
-                                color = OpenScribeColors.SubtitleYellow,
+                                color = OpenScribeColors.GpuCyan,
                                 trackColor = OpenScribeColors.SurfaceElevated,
                             )
                         }
-                    }
 
-                    if (!jobState.translationProgressText.isNullOrBlank() && isRunning) {
-                        Text(
-                            text = "Subtitles: ${jobState.translationProgressText}",
-                            fontSize = 11.sp,
-                            color = OpenScribeColors.GpuCyan,
-                        )
-                        if (!jobState.chunkDownloadStatus.isNullOrBlank()) {
+                        if (!jobState.errorMessage.isNullOrBlank()) {
                             Text(
-                                text = "Stream: ${jobState.chunkDownloadStatus}",
-                                fontSize = 11.sp,
-                                color = OpenScribeColors.SubtitleYellow,
+                                text = jobState.errorMessage,
+                                color = OpenScribeColors.DangerRed,
+                                fontSize = 12.sp,
                             )
                         }
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp)),
-                            color = OpenScribeColors.GpuCyan,
-                            trackColor = OpenScribeColors.SurfaceElevated,
-                        )
-                    }
 
-                    if (!jobState.errorMessage.isNullOrBlank()) {
-                        Text(
-                            text = jobState.errorMessage,
-                            color = OpenScribeColors.DangerRed,
-                            fontSize = 12.sp,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        if (jobState.isPlayerReady &&
-                            (jobState.playableVideoSource != null || jobState.playableChunks.isNotEmpty()) &&
-                            jobState.cueCount > 0
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            val isStreamingLive = jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null
-                            Button(
-                                onClick = onOpenPlayer,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = OpenScribeColors.SubtitleYellow,
-                                    contentColor = OpenScribeColors.Obsidian,
-                                ),
-                                shape = RoundedCornerShape(12.dp),
+                            if (jobState.isPlayerReady &&
+                                (jobState.playableVideoSource != null || jobState.playableChunks.isNotEmpty()) &&
+                                jobState.cueCount > 0
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isStreamingLive) "Watch Now (Live)" else "Watch Now",
-                                    fontWeight = FontWeight.Bold,
-                                )
+                                val isStreamingLive = jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null
+                                Button(
+                                    onClick = onOpenPlayer,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = OpenScribeColors.SubtitleYellow,
+                                        contentColor = OpenScribeColors.Obsidian,
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isStreamingLive) "Watch Live" else "Watch Now",
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
-                        }
-                        if (jobState.savedPacks.isNotEmpty() && !isRunning) {
-                            OutlinedButton(
-                                onClick = onJumpToDownloads,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.6f)),
-                            ) {
-                                Text("Downloads (${jobState.savedPacks.size})", color = OpenScribeColors.GpuCyan, fontSize = 12.sp)
+                            if (jobState.savedPacks.isNotEmpty() && !isRunning) {
+                                OutlinedButton(
+                                    onClick = onJumpToDownloads,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.6f)),
+                                ) {
+                                    Text(
+                                        text = "Downloads (${jobState.savedPacks.size})",
+                                        color = OpenScribeColors.GpuCyan,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
-                        }
-                        if (isRunning) {
-                            OutlinedButton(
-                                onClick = onCancelJob,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
-                            ) {
-                                Text("Cancel Job", color = OpenScribeColors.TextPrimary)
+                            if (isRunning) {
+                                OutlinedButton(
+                                    onClick = onCancelJob,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
+                                ) {
+                                    Text(
+                                        text = "Cancel Job",
+                                        color = OpenScribeColors.TextPrimary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
-                        }
-                        if (jobState.phase == JobPhase.ERROR) {
-                            OutlinedButton(
-                                onClick = onOpenDebugLogs,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.BugReport,
-                                    contentDescription = null,
-                                    tint = OpenScribeColors.DangerRed,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Debug Logs", color = OpenScribeColors.DangerRed, fontSize = 12.sp)
+                            if (jobState.phase == JobPhase.ERROR) {
+                                OutlinedButton(
+                                    onClick = onOpenDebugLogs,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BugReport,
+                                        contentDescription = null,
+                                        tint = OpenScribeColors.DangerRed,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Debug Logs",
+                                        color = OpenScribeColors.DangerRed,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+
+            if (isRunning) {
+                jobStatusCardContent()
+            } else {
+                SwipeDismissibleBanner(onDismiss = { jobResultDismissed = true }) {
+                    jobStatusCardContent()
+                }
+            }
         }
 
-        // Warm Session Reuse Menu (with Stop T4 GPU button cleanly placed BELOW text)
-        if (jobState.isGpuWarm || jobState.previousJob != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
-                border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(18.dp),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+        // Warm Session / Previous Pack Reuse Card (swipe-to-dismiss when GPU is NOT warm)
+        if ((jobState.isGpuWarm || jobState.previousJob != null) && (jobState.isGpuWarm || !previousCardDismissed)) {
+            val warmSessionCardContent: @Composable () -> Unit = {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
+                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(18.dp),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "Warm T4 Session",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = OpenScribeColors.GpuCyan,
-                        )
-                        Text(
-                            text = if (jobState.isGpuWarm) {
-                                "Whisper ${settings.modelId} weights stay cached in Colab VRAM for instant next jobs."
-                            } else {
-                                "Previous job cached for instant replay"
-                            },
-                            fontSize = 12.sp,
-                            color = OpenScribeColors.TextSecondary,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        val prev = jobState.previousJob
-                        if (prev != null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = if (jobState.isGpuWarm) "Warm T4 Session" else "Previous Pack Ready",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = OpenScribeColors.GpuCyan,
+                            )
+                            Text(
+                                text = if (jobState.isGpuWarm) {
+                                    "Whisper ${settings.modelId} weights stay cached in Colab VRAM for instant next jobs."
+                                } else {
+                                    "Previous job cached for instant replay"
+                                },
+                                fontSize = 12.sp,
+                                color = OpenScribeColors.TextSecondary,
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            val prev = jobState.previousJob
+                            if (prev != null) {
+                                OutlinedButton(
+                                    onClick = onRunPrevious,
+                                    enabled = !isRunning,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.SubtitleYellow.copy(alpha = 0.7f)),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Replay,
+                                        contentDescription = null,
+                                        tint = OpenScribeColors.SubtitleYellow,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Text(
+                                        text = "Run Previous",
+                                        color = OpenScribeColors.SubtitleYellow,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+
                             OutlinedButton(
-                                onClick = onRunPrevious,
+                                onClick = onPrepareNewLink,
                                 enabled = !isRunning,
                                 modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                                 shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, OpenScribeColors.SubtitleYellow.copy(alpha = 0.7f)),
+                                border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
                             ) {
                                 Icon(
-                                    Icons.Default.Replay,
+                                    Icons.Default.AddLink,
                                     contentDescription = null,
-                                    tint = OpenScribeColors.SubtitleYellow,
+                                    tint = OpenScribeColors.GpuCyan,
                                     modifier = Modifier.size(16.dp),
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Run Previous", color = OpenScribeColors.SubtitleYellow, fontSize = 12.sp)
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = "New Video",
+                                    color = OpenScribeColors.GpuCyan,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
 
-                        OutlinedButton(
-                            onClick = onPrepareNewLink,
-                            enabled = !isRunning,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.7f)),
-                        ) {
-                            Icon(
-                                Icons.Default.AddLink,
-                                contentDescription = null,
-                                tint = OpenScribeColors.GpuCyan,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("New Video", color = OpenScribeColors.GpuCyan, fontSize = 12.sp)
+                        if (jobState.isGpuWarm) {
+                            OutlinedButton(
+                                onClick = onStopT4Gpu,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.StopCircle,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.DangerRed,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Stop T4 GPU Runtime",
+                                    color = OpenScribeColors.DangerRed,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                )
+                            }
                         }
-                    }
 
-                    if (jobState.isGpuWarm) {
-                        OutlinedButton(
-                            onClick = onStopT4Gpu,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.StopCircle,
-                                contentDescription = null,
-                                tint = OpenScribeColors.DangerRed,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Stop T4 GPU Runtime",
-                                color = OpenScribeColors.DangerRed,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                            )
+                        jobState.previousJob?.let { prev ->
+                            val cacheNote = buildList {
+                                if (prev.subtitlesCompleted) add("Subtitles cached")
+                                if (!prev.savedMp4Uri.isNullOrBlank() || !prev.savedMp4Path.isNullOrBlank()) add("MP4 cached")
+                            }.joinToString(" • ")
+                            if (cacheNote.isNotEmpty()) {
+                                Text(
+                                    text = "Smart Cache: $cacheNote",
+                                    fontSize = 11.sp,
+                                    color = OpenScribeColors.SuccessGreen,
+                                )
+                            }
                         }
                     }
+                }
+            }
 
-                    jobState.previousJob?.let { prev ->
-                        val cacheNote = buildList {
-                            if (prev.subtitlesCompleted) add("Subtitles cached")
-                            if (!prev.savedMp4Uri.isNullOrBlank() || !prev.savedMp4Path.isNullOrBlank()) add("MP4 cached")
-                        }.joinToString(" • ")
-                        if (cacheNote.isNotEmpty()) {
-                            Text(
-                                text = "Smart Cache: $cacheNote",
-                                fontSize = 11.sp,
-                                color = OpenScribeColors.SuccessGreen,
-                            )
-                        }
-                    }
+            if (jobState.isGpuWarm) {
+                warmSessionCardContent()
+            } else {
+                SwipeDismissibleBanner(onDismiss = { previousCardDismissed = true }) {
+                    warmSessionCardContent()
                 }
             }
         }
@@ -1507,7 +1644,7 @@ private fun DownloadsTabContent(
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
-                    text = "Each downloaded video and its English + original subtitles will live in its own subfolder inside Downloads/OpenScribe/.",
+                    text = "Each downloaded video and its English + original subtitles will live in its own subfolder inside Downloads/SUBCOLAB/.",
                     fontSize = 13.sp,
                     color = OpenScribeColors.TextSecondary,
                 )
@@ -1523,7 +1660,7 @@ private fun DownloadsTabContent(
     ) {
         item {
             Text(
-                text = "Saved Packs (Downloads/OpenScribe/<title>/)",
+                text = "Saved Packs (Downloads/SUBCOLAB/<title>/)",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = OpenScribeColors.TextSecondary,

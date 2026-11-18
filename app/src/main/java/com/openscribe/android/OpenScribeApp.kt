@@ -20,6 +20,9 @@ import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -36,6 +39,9 @@ class OpenScribeApp : Application() {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _enginesReady = MutableStateFlow(false)
+    val enginesReady: StateFlow<Boolean> = _enginesReady.asStateFlow()
 
     lateinit var settingsRepository: SettingsRepository
         private set
@@ -71,17 +77,6 @@ class OpenScribeApp : Application() {
 
         createNotificationChannels()
 
-        var ytInitialized = false
-        runCatching {
-            YoutubeDL.getInstance().init(this)
-            FFmpeg.getInstance().init(this)
-            Aria2c.getInstance().init(this)
-            ytInitialized = true
-            AppLogger.i(TAG, "youtubedl-android, ffmpeg, aria2c initialized")
-        }.onFailure { err ->
-            AppLogger.e(TAG, "Failed to initialize youtubedl-android", err)
-        }
-
         settingsRepository = SettingsRepository(this)
         authManager = ColabAuthManager(this)
         colabClient = ColabClient(authManager)
@@ -95,8 +90,20 @@ class OpenScribeApp : Application() {
             subtitleManager = subtitleManager,
         )
 
-        if (ytInitialized) {
-            appScope.launch {
+        // Initialize embedded yt-dlp, FFmpeg, and Aria2c off the Main UI thread so launch is instant
+        appScope.launch {
+            var ytInitialized = false
+            runCatching {
+                YoutubeDL.getInstance().init(this@OpenScribeApp)
+                FFmpeg.getInstance().init(this@OpenScribeApp)
+                Aria2c.getInstance().init(this@OpenScribeApp)
+                ytInitialized = true
+                AppLogger.i(TAG, "youtubedl-android, ffmpeg, aria2c initialized")
+            }.onFailure { err ->
+                AppLogger.e(TAG, "Failed to initialize youtubedl-android", err)
+            }
+            _enginesReady.value = true
+            if (ytInitialized) {
                 streamExtractor.updateYtDlpIfDue(this@OpenScribeApp)
             }
         }

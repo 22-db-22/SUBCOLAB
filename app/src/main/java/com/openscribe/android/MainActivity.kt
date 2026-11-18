@@ -15,20 +15,51 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.navigation.compose.NavHost
@@ -81,8 +112,11 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         handleIncomingIntent(intent)
 
+        val app = application as OpenScribeApp
+
         setContent {
             val settings by viewModel.settings.collectAsState()
+            val enginesReady by app.enginesReady.collectAsState()
             val isDarkTheme = isOpenScribeDarkTheme(settings.themeMode)
 
             OpenScribeTheme(themeMode = settings.themeMode) {
@@ -93,6 +127,15 @@ class MainActivity : ComponentActivity() {
                     insetsController.isAppearanceLightStatusBars = isLightBars
                     insetsController.isAppearanceLightNavigationBars = isLightBars
                 }
+
+                Crossfade(
+                    targetState = enginesReady,
+                    animationSpec = tween(durationMillis = 280),
+                    label = "startup_crossfade",
+                ) { ready ->
+                    if (!ready) {
+                        StartupLoadingScreen()
+                    } else {
                 val navController = rememberNavController()
                 val urlInput by viewModel.urlInput.collectAsState()
                 val selectedLang by viewModel.selectedLang.collectAsState()
@@ -280,7 +323,7 @@ class MainActivity : ComponentActivity() {
                                         "${jobState.cueCount} English cues ready. Remaining chunks & subtitles will continue in the background."
                                 } else {
                                     "${jobState.titleSlug.replace('_', ' ')}\n\n" +
-                                        "${jobState.cueCount} English subtitle cues ready. Saved to Downloads/OpenScribe/."
+                                        "${jobState.cueCount} English subtitle cues ready. Saved to Downloads/SUBCOLAB/."
                                 },
                             )
                         },
@@ -323,6 +366,8 @@ class MainActivity : ComponentActivity() {
                         onClearLogs = viewModel::clearDebugLogs,
                         onDismiss = { showDebugLogsDialog = false },
                     )
+                }
+                    }
                 }
             }
         }
@@ -376,6 +421,97 @@ class MainActivity : ComponentActivity() {
             if (!granted) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+}
+
+@Composable
+private fun StartupLoadingScreen() {
+    val infiniteTransition = rememberInfiniteTransition(label = "startup_pulse")
+    val ringScale by infiniteTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ring_scale",
+    )
+    val ringAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "ring_alpha",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(OpenScribeColors.Obsidian),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                modifier = Modifier.size(116.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .size(104.dp)
+                        .scale(ringScale)
+                        .alpha(ringAlpha),
+                    shape = CircleShape,
+                    color = Color.Transparent,
+                    border = BorderStroke(2.dp, OpenScribeColors.SagePrimary),
+                ) {}
+
+                CircularProgressIndicator(
+                    modifier = Modifier.size(92.dp),
+                    color = OpenScribeColors.SagePrimary,
+                    trackColor = OpenScribeColors.SurfaceElevated,
+                    strokeWidth = 3.5.dp,
+                )
+
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(OpenScribeColors.CardSurface),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ClosedCaption,
+                        contentDescription = "SUBCOLAB",
+                        tint = OpenScribeColors.DangerRed,
+                        modifier = Modifier.size(34.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(22.dp))
+
+            Text(
+                text = "SUBCOLAB",
+                color = OpenScribeColors.TextPrimary,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Starting SUBCOLAB...",
+                color = OpenScribeColors.TextSecondary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }

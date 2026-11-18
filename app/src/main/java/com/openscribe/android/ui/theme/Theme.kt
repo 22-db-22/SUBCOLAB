@@ -65,7 +65,23 @@ private val DarkPalette = OpenScribePalette(
     dangerRed = Color(0xFFF87171),
 )
 
-private val LocalOpenScribePalette = staticCompositionLocalOf { LightPalette }
+private val SoftDarkPalette = OpenScribePalette(
+    creamBg = Color(0xFF1E222A),
+    cardSurface = Color(0xFF272C36),
+    cardSurfaceAlt = Color(0xFF313744),
+    warmBorder = Color(0xFF3E4656),
+    sagePrimary = Color(0xFF5B93F5),
+    sageContainer = Color(0xFF25344E),
+    skyAccent = Color(0xFF5B93F5),
+    skyContainer = Color(0xFF233046),
+    skyTextStrong = Color(0xFF8AB4F8),
+    textPrimary = Color(0xFFE2E6EE),
+    textSecondary = Color(0xFFA6B0C0),
+    successGreen = Color(0xFF4ADE80),
+    dangerRed = Color(0xFFE14D67),
+)
+
+private val LocalOpenScribePalette = staticCompositionLocalOf { SoftDarkPalette }
 
 object OpenScribeColors {
     val CreamBg: Color @Composable @ReadOnlyComposable get() = LocalOpenScribePalette.current.creamBg
@@ -144,6 +160,28 @@ private val DarkColorScheme = darkColorScheme(
     onError = Color(0xFF1A0000),
 )
 
+private val SoftDarkColorScheme = darkColorScheme(
+    primary = SoftDarkPalette.sagePrimary,
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = SoftDarkPalette.sageContainer,
+    onPrimaryContainer = SoftDarkPalette.skyTextStrong,
+    secondary = SoftDarkPalette.skyAccent,
+    onSecondary = Color(0xFF0E1726),
+    secondaryContainer = SoftDarkPalette.skyContainer,
+    onSecondaryContainer = SoftDarkPalette.skyTextStrong,
+    tertiary = SoftDarkPalette.successGreen,
+    onTertiary = Color(0xFF0B2418),
+    background = SoftDarkPalette.creamBg,
+    onBackground = SoftDarkPalette.textPrimary,
+    surface = SoftDarkPalette.cardSurface,
+    onSurface = SoftDarkPalette.textPrimary,
+    surfaceVariant = SoftDarkPalette.cardSurfaceAlt,
+    onSurfaceVariant = SoftDarkPalette.textSecondary,
+    outline = SoftDarkPalette.warmBorder,
+    error = SoftDarkPalette.dangerRed,
+    onError = Color(0xFFFFFFFF),
+)
+
 private fun buildTypography(palette: OpenScribePalette): Typography = Typography(
     headlineMedium = TextStyle(
         fontSize = 24.sp,
@@ -180,19 +218,30 @@ private fun buildTypography(palette: OpenScribePalette): Typography = Typography
 
 @Composable
 fun isOpenScribeDarkTheme(themeMode: ThemeMode): Boolean = when (themeMode) {
-    ThemeMode.SYSTEM -> isSystemInDarkTheme()
-    ThemeMode.LIGHT -> false
+    ThemeMode.SOFT_DARK -> true
     ThemeMode.DARK -> true
+    ThemeMode.LIGHT -> false
+    ThemeMode.SYSTEM -> isSystemInDarkTheme()
 }
 
 @Composable
 fun OpenScribeTheme(
-    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    themeMode: ThemeMode = ThemeMode.SOFT_DARK,
     content: @Composable () -> Unit,
 ) {
-    val darkTheme = isOpenScribeDarkTheme(themeMode)
-    val palette = if (darkTheme) DarkPalette else LightPalette
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val systemDark = isSystemInDarkTheme()
+    val palette = when (themeMode) {
+        ThemeMode.SOFT_DARK -> SoftDarkPalette
+        ThemeMode.LIGHT -> LightPalette
+        ThemeMode.DARK -> DarkPalette
+        ThemeMode.SYSTEM -> if (systemDark) DarkPalette else LightPalette
+    }
+    val colorScheme = when (themeMode) {
+        ThemeMode.SOFT_DARK -> SoftDarkColorScheme
+        ThemeMode.LIGHT -> LightColorScheme
+        ThemeMode.DARK -> DarkColorScheme
+        ThemeMode.SYSTEM -> if (systemDark) DarkColorScheme else LightColorScheme
+    }
 
     CompositionLocalProvider(LocalOpenScribePalette provides palette) {
         MaterialTheme(

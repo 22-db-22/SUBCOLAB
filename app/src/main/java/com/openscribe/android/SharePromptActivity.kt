@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -241,9 +242,10 @@ private fun ShareOverlayCard(
                     onClick = { onStart(selectedLang, WorkflowMode.DOWNLOAD_AND_TRANSLATE) },
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp),
+                        .heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, OpenScribeColors.SkyAccent.copy(alpha = 0.8f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Download,
@@ -251,20 +253,24 @@ private fun ShareOverlayCard(
                         tint = OpenScribeColors.SkyTextStrong,
                         modifier = Modifier.size(16.dp),
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
                     Text(
                         text = "Download",
                         color = OpenScribeColors.SkyTextStrong,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Button(
                     onClick = { onStart(selectedLang, WorkflowMode.WATCH_NOW) },
                     modifier = Modifier
-                        .weight(1.25f)
-                        .height(48.dp),
+                        .weight(1.2f)
+                        .heightIn(min = 48.dp),
                     shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = OpenScribeColors.SagePrimary,
                         contentColor = Color.White,
@@ -280,6 +286,9 @@ private fun ShareOverlayCard(
                         text = "Watch Now",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

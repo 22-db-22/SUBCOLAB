@@ -15,7 +15,7 @@ enum class WorkflowMode(
     ),
     DOWNLOAD_AND_TRANSLATE(
         title = "Download + Translate",
-        subtitle = "Save full <=720p MP4 + English & original subtitles to Downloads/OpenScribe",
+        subtitle = "Save full <=720p MP4 + English & original subtitles to Downloads/SUBCOLAB",
         isLocalVideo = false,
     ),
     LOCAL_VIDEO_SUBTITLES(
@@ -232,7 +232,7 @@ data class SavedPack(
         get() = id.ifBlank { "${folderName.ifBlank { titleSlug }}_$createdAtMs" }
 
     val effectiveFolder: String
-        get() = folderName.ifBlank { titleSlug.take(42).trim('_').ifBlank { "OpenScribe_Video" } }
+        get() = folderName.ifBlank { titleSlug.take(42).trim('_').ifBlank { "SUBCOLAB_Video" } }
 
     val hasVideo: Boolean
         get() = !mp4UriString.isNullOrBlank() || !internalVideoPath.isNullOrBlank() || isLocalVideo
@@ -244,7 +244,7 @@ data class SavedPack(
 @Serializable
 data class PersistedJobSession(
     val currentUrl: String = "",
-    val titleSlug: String = "OpenScribe_Translated_Video",
+    val titleSlug: String = "SUBCOLAB_Translated_Video",
     val sourceLang: String = "auto",
     val mode: WorkflowMode = WorkflowMode.DOWNLOAD_AND_TRANSLATE,
     val cueCount: Int = 0,
@@ -280,7 +280,7 @@ data class JobProgressState(
     val statusMessage: String = "Ready",
     val detailMessage: String = "",
     val currentUrl: String = "",
-    val titleSlug: String = "OpenScribe_Translated_Video",
+    val titleSlug: String = "SUBCOLAB_Translated_Video",
     val sourceLang: String = "auto",
     val detectedOrigLang: String? = null,
     val mode: WorkflowMode = WorkflowMode.DOWNLOAD_AND_TRANSLATE,
@@ -316,9 +316,10 @@ data class JobProgressState(
 
 @Serializable
 enum class ThemeMode(val label: String) {
-    SYSTEM("System"),
+    SOFT_DARK("Soft Dark"),
     LIGHT("Light"),
     DARK("Dark"),
+    SYSTEM("System"),
 }
 
 @Serializable
@@ -332,5 +333,5 @@ data class AppSettings(
     val customOauthClientSecret: String = "",
     val hasCookiesFile: Boolean = false,
     val subtitleFontSize: Int = 46,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.SOFT_DARK,
 )

@@ -60,7 +60,7 @@ class OpenScribeForegroundService : Service() {
             }
 
         promoteToForeground(
-            title = "OpenScribe",
+            title = "SUBCOLAB",
             body = "Starting background download & translation...",
         )
 
@@ -98,7 +98,7 @@ class OpenScribeForegroundService : Service() {
         when (intent?.action) {
             ACTION_START_JOB -> {
                 promoteToForeground(
-                    title = "OpenScribe",
+                    title = "SUBCOLAB",
                     body = app.coordinator.state.value.statusMessage.ifBlank {
                         "Downloading & translating in background..."
                     },
@@ -222,7 +222,7 @@ class OpenScribeForegroundService : Service() {
             else -> "Ready to Watch ($cueCount cues)"
         }
         val bodyText = when {
-            isComplete -> "$cleanTitle\nSaved to Downloads/OpenScribe/"
+            isComplete -> "$cleanTitle\nSaved to Downloads/SUBCOLAB/"
             isLiveStream -> "$cleanTitle\nSmooth live stream ready while remaining subtitles translate"
             else -> "$cleanTitle\nPlay from start while remaining chunks finish in background"
         }

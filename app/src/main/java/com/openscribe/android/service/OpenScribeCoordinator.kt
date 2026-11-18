@@ -56,7 +56,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Central orchestrator shared between MainActivity / SharePromptActivity / ViewModel
  * and OpenScribeForegroundService.
  * Runs parallel MP4 + phone audio extraction + Colab T4 dual-language Whisper translation,
- * manages dedicated Downloads/OpenScribe/<shortTitle>/ folders, and supports background
+ * manages dedicated Downloads/SUBCOLAB/<shortTitle>/ folders, and supports background
  * re-download / subtitle improvement / instant permanent delete in the Downloads tab.
  */
 class OpenScribeCoordinator(
@@ -172,7 +172,7 @@ class OpenScribeCoordinator(
                 promptedReadyForJobToken = jobToken
                 if (!OpenScribeApp.isAppInForeground) {
                     val launchedDirectly = launchPlayerFromBackground()
-                    val slug = cur.titleSlug.ifBlank { "OpenScribe_Video" }
+                    val slug = cur.titleSlug.ifBlank { "SUBCOLAB_Video" }
                     playerReadyNotificationCallback?.invoke(
                         slug,
                         cur.cueCount,
@@ -585,7 +585,7 @@ class OpenScribeCoordinator(
             }
             persistSession()
             notificationCallback?.invoke(
-                "OpenScribe — T4 Warm",
+                "SUBCOLAB — T4 Warm",
                 "Job stopped. Colab T4 GPU is ready for your next video.",
                 false,
             )
@@ -812,7 +812,7 @@ class OpenScribeCoordinator(
         }
 
         val initialSlug = if (canReuseSubtitles) prev!!.titleSlug
-        else existingPack?.titleSlug ?: "OpenScribe_Video_${packId.take(4)}"
+        else existingPack?.titleSlug ?: "SUBCOLAB_Video_${packId.take(4)}"
 
         val initialCache = PreviousJobCache(
             rawUrl = rawUrl,
@@ -877,7 +877,7 @@ class OpenScribeCoordinator(
         }
         persistSession(wasCompletedOverride = canReuseSubtitles)
         updateNotification(
-            if (isWatchNow) "OpenScribe — Live Stream & Translate" else "OpenScribe — Downloading & Translating",
+            if (isWatchNow) "SUBCOLAB — Live Stream & Translate" else "SUBCOLAB — Downloading & Translating",
             _state.value.statusMessage,
             ongoing = true,
         )
@@ -948,7 +948,7 @@ class OpenScribeCoordinator(
                     )
                     if (cleanSlug.length >= 3) {
                         _state.update { cur ->
-                            if (cur.titleSlug.startsWith("OpenScribe_Video")) {
+                            if (cur.titleSlug.startsWith("SUBCOLAB_Video") || cur.titleSlug.startsWith("OpenScribe_Video")) {
                                 cur.copy(
                                     titleSlug = cleanSlug,
                                     previousJob = cur.previousJob?.copy(titleSlug = cleanSlug),
@@ -963,7 +963,7 @@ class OpenScribeCoordinator(
                 }
 
                 suspend fun saveCompletedMp4ToPack(mp4File: File): String {
-                    val resolvedSlug = _state.value.titleSlug.ifBlank { "OpenScribe_Translated_Video" }
+                    val resolvedSlug = _state.value.titleSlug.ifBlank { "SUBCOLAB_Translated_Video" }
                     val folder = existingPack?.effectiveFolder ?: MediaStoreSaver.buildShortFolderName(resolvedSlug)
                     savedMp4Result = MediaStoreSaver.saveBinaryFile(
                         appContext, mp4File, "${folder}.mp4", "video/mp4", subfolder = folder,
@@ -999,7 +999,7 @@ class OpenScribeCoordinator(
                             isStitching = false,
                             savePackStatus = SavePackStatus.SAVED,
                             saveProgressPercent = 100,
-                            saveStatusText = "Video saved to Downloads/OpenScribe/$folder/",
+                            saveStatusText = "Video saved to Downloads/SUBCOLAB/$folder/",
                         )
                     }
                     persistSession(wasCompletedOverride = false)
@@ -1133,7 +1133,7 @@ class OpenScribeCoordinator(
                                 onStatus = { msg ->
                                     if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
                                     _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
-                                    updateNotification("OpenScribe — Live T4 GPU", msg, ongoing = true)
+                                    updateNotification("SUBCOLAB — Live T4 GPU", msg, ongoing = true)
                                 },
                                 onBeforeExecute = { session ->
                                     syncQueueToSession(session)
@@ -1378,7 +1378,7 @@ class OpenScribeCoordinator(
                                 onStatus = { msg ->
                                     if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
                                     _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
-                                    updateNotification("OpenScribe — T4 GPU", msg, ongoing = true)
+                                    updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                                 },
                                 onBeforeExecute = { session ->
                                     activeStreamSession.set(session)
@@ -1534,7 +1534,7 @@ class OpenScribeCoordinator(
                                 }
                                 if (_state.value.phase == JobPhase.SAVING_PACK) {
                                     updateNotification(
-                                        "OpenScribe — Finishing Video ($pct%)",
+                                        "SUBCOLAB — Finishing Video ($pct%)",
                                         "Subtitles ready (${subtitleManager.cueCount()} cues) • Downloading MP4 $pct%",
                                         ongoing = true,
                                     )
@@ -1631,7 +1631,7 @@ class OpenScribeCoordinator(
                             )
                         }
                         updateNotification(
-                            "OpenScribe — Finishing Video ($currentPct%)",
+                            "SUBCOLAB — Finishing Video ($currentPct%)",
                             "Subtitles ready (${subtitleManager.cueCount()} cues) • Waiting for MP4 download",
                             ongoing = true,
                         )
@@ -1664,12 +1664,12 @@ class OpenScribeCoordinator(
                 _state.update {
                     it.copy(
                         phase = JobPhase.SAVING_PACK,
-                        statusMessage = "Saving subtitles to Downloads/OpenScribe/...",
+                        statusMessage = "Saving subtitles to Downloads/SUBCOLAB/...",
                         saveStatusText = "Writing SRT/ASS/VTT...",
                     )
                 }
 
-                val slug = _state.value.titleSlug.ifBlank { "OpenScribe_Translated_Video" }
+                val slug = _state.value.titleSlug.ifBlank { "SUBCOLAB_Translated_Video" }
                 val latestExisting = _state.value.savedPacks.firstOrNull { it.effectiveId == packId } ?: existingPack
                 val folder = latestExisting?.effectiveFolder ?: MediaStoreSaver.buildShortFolderName(slug)
 
@@ -1746,9 +1746,9 @@ class OpenScribeCoordinator(
                         savePackStatus = SavePackStatus.SAVED,
                         saveProgressPercent = 100,
                         saveStatusText = if (finishedLiveStream) {
-                            "Subtitles saved to Downloads/OpenScribe/$folder/ (tap Video in Downloads to save MP4)"
+                            "Subtitles saved to Downloads/SUBCOLAB/$folder/ (tap Video in Downloads to save MP4)"
                         } else {
-                            "Saved to Downloads/OpenScribe/$folder/"
+                            "Saved to Downloads/SUBCOLAB/$folder/"
                         },
                         previousJob = it.previousJob?.copy(
                             titleSlug = slug,
@@ -1770,11 +1770,11 @@ class OpenScribeCoordinator(
                     }
                 } else {
                     updateNotification(
-                        "OpenScribe — Saved ($folder)",
+                        "SUBCOLAB — Saved ($folder)",
                         if (finishedLiveStream) {
-                            "All ${subBundle.enCueCount} EN cues saved to Downloads/OpenScribe/$folder/"
+                            "All ${subBundle.enCueCount} EN cues saved to Downloads/SUBCOLAB/$folder/"
                         } else {
-                            "Video & ${subBundle.enCueCount} EN cues saved to Downloads/OpenScribe/$folder/"
+                            "Video & ${subBundle.enCueCount} EN cues saved to Downloads/SUBCOLAB/$folder/"
                         },
                         ongoing = false,
                     )
@@ -1891,7 +1891,7 @@ class OpenScribeCoordinator(
             )
         }
         persistSession(wasCompletedOverride = false)
-        updateNotification("OpenScribe — Local Video", "Extracting audio from $initialName...", ongoing = true)
+        updateNotification("SUBCOLAB — Local Video", "Extracting audio from $initialName...", ongoing = true)
 
         var extractedAudioFile: File? = null
         try {
@@ -1939,7 +1939,7 @@ class OpenScribeCoordinator(
             _state.update {
                 it.copy(
                     phase = JobPhase.SAVING_PACK,
-                    statusMessage = "Saving subtitles to Downloads/OpenScribe/...",
+                    statusMessage = "Saving subtitles to Downloads/SUBCOLAB/...",
                     savePackStatus = SavePackStatus.SAVING,
                     saveProgressPercent = 80,
                     saveStatusText = "Writing EN + Original SRT/ASS/VTT...",
@@ -2002,7 +2002,7 @@ class OpenScribeCoordinator(
                     activePackId = null,
                     savePackStatus = SavePackStatus.SAVED,
                     saveProgressPercent = 100,
-                    saveStatusText = "Subtitles saved to Downloads/OpenScribe/$folder/",
+                    saveStatusText = "Subtitles saved to Downloads/SUBCOLAB/$folder/",
                     previousJob = it.previousJob?.copy(
                         titleSlug = slug,
                         subtitlesCompleted = true,
@@ -2043,7 +2043,7 @@ class OpenScribeCoordinator(
                 errorMessage = null,
             )
         }
-        updateNotification("OpenScribe — Downloading ${maxHeight}p Video", pack.titleSlug.replace('_', ' '), ongoing = true)
+        updateNotification("SUBCOLAB — Downloading ${maxHeight}p Video", pack.titleSlug.replace('_', ' '), ongoing = true)
 
         try {
             streamExtractor.cancelProcess("save_mp4")
@@ -2103,7 +2103,7 @@ class OpenScribeCoordinator(
             _state.update {
                 it.copy(
                     phase = JobPhase.COMPLETED,
-                    statusMessage = "Downloaded ${maxHeight}p MP4 to Downloads/OpenScribe/$folder/",
+                    statusMessage = "Downloaded ${maxHeight}p MP4 to Downloads/SUBCOLAB/$folder/",
                     activePackId = null,
                     savePackStatus = SavePackStatus.SAVED,
                     saveProgressPercent = 100,
@@ -2113,8 +2113,8 @@ class OpenScribeCoordinator(
             }
             persistSession(wasCompletedOverride = true)
             updateNotification(
-                "OpenScribe — ${maxHeight}p Video Ready",
-                "${pack.titleSlug.replace('_', ' ')} saved to Downloads/OpenScribe/$folder/",
+                "SUBCOLAB — ${maxHeight}p Video Ready",
+                "${pack.titleSlug.replace('_', ' ')} saved to Downloads/SUBCOLAB/$folder/",
                 ongoing = false,
             )
         } catch (ce: CancellationException) {
@@ -2155,7 +2155,7 @@ class OpenScribeCoordinator(
                 errorMessage = null,
             )
         }
-        updateNotification("OpenScribe — Generating Subtitles", pack.titleSlug.replace('_', ' '), ongoing = true)
+        updateNotification("SUBCOLAB — Generating Subtitles", pack.titleSlug.replace('_', ' '), ongoing = true)
 
         val localDir = File(appContext.cacheDir, "retrans_$packId").apply { mkdirs() }
         var tempAudioFile: File? = null
@@ -2256,12 +2256,12 @@ class OpenScribeCoordinator(
                     liveOrigSrtPath = liveOrigSrtFile.takeIf { f -> f.exists() && f.length() > 0L }?.absolutePath,
                     activePackId = null,
                     savePackStatus = SavePackStatus.SAVED,
-                    saveStatusText = "Updated in Downloads/OpenScribe/$folder/",
+                    saveStatusText = "Updated in Downloads/SUBCOLAB/$folder/",
                 )
             }
             persistSession(wasCompletedOverride = true)
             updateNotification(
-                "OpenScribe — Subtitles Updated",
+                "SUBCOLAB — Subtitles Updated",
                 "${pack.titleSlug.replace('_', ' ')} (${subBundle.enCueCount} EN cues)",
                 ongoing = false,
             )
@@ -2354,7 +2354,7 @@ class OpenScribeCoordinator(
                             )
                         }
                         if (!silentBackground) {
-                            updateNotification("OpenScribe — T4 GPU", statusMsg, ongoing = true)
+                            updateNotification("SUBCOLAB — T4 GPU", statusMsg, ongoing = true)
                         }
                     }
                 }
@@ -2375,7 +2375,7 @@ class OpenScribeCoordinator(
                             translationProgressText = "Uploading audio ($kb KB) to T4 GPU...",
                         )
                     }
-                    updateNotification("OpenScribe — T4 GPU", "Uploading extracted audio ($kb KB) to Colab...", ongoing = true)
+                    updateNotification("SUBCOLAB — T4 GPU", "Uploading extracted audio ($kb KB) to Colab...", ongoing = true)
                     colabClient.uploadFile(runtime, initialLocalAudioFile, remoteLocalPath)
                     initialLocalAudioFile.delete()
 
@@ -2387,7 +2387,7 @@ class OpenScribeCoordinator(
                         onStatus = { msg ->
                             if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
                             _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
-                            updateNotification("OpenScribe — T4 GPU", msg, ongoing = true)
+                            updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                         },
                         onOutputLine = { line ->
                             handleWorkerLine(
@@ -2411,7 +2411,7 @@ class OpenScribeCoordinator(
                     onStatus = { msg ->
                         if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
                         _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
-                        updateNotification("OpenScribe — T4 GPU", msg, ongoing = true)
+                        updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                     },
                     onOutputLine = { line ->
                         handleWorkerLine(
@@ -2435,7 +2435,7 @@ class OpenScribeCoordinator(
                 )
             }
             updateNotification(
-                "OpenScribe — Phone Audio Relay",
+                "SUBCOLAB — Phone Audio Relay",
                 "Bypassing Colab YouTube block via phone Wi-Fi...",
                 ongoing = true,
             )
@@ -2497,7 +2497,7 @@ class OpenScribeCoordinator(
             )
         }
         updateNotification(
-            "OpenScribe — Colab Video Relay",
+            "SUBCOLAB — Colab Video Relay",
             "Downloading <=${maxHeight}p MP4 via Colab relay...",
             ongoing = true,
         )
@@ -2599,7 +2599,7 @@ class OpenScribeCoordinator(
                     )
                 }
                 appendLog(event.message)
-                updateNotification("OpenScribe — T4 GPU", event.message, ongoing = true)
+                updateNotification("SUBCOLAB — T4 GPU", event.message, ongoing = true)
             }
             is WorkerEvent.CueArrived -> {
                 subtitleManager.writeLiveSrt(liveSrtFile)
@@ -2677,7 +2677,7 @@ class OpenScribeCoordinator(
         }
         persistSession(wasCompletedOverride = false)
         updateNotification(
-            if (fromExternalShare) "OpenScribe — Download/Translation Failed" else "OpenScribe — Error",
+            if (fromExternalShare) "SUBCOLAB — Download/Translation Failed" else "SUBCOLAB — Error",
             msg,
             ongoing = false,
         )

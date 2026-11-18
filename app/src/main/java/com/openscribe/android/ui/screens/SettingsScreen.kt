@@ -153,7 +153,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 0. Appearance / Theme Mode Selector (System / Light / Dark)
+            // 0. Appearance / Theme Mode Selector (Soft Dark / Light / Dark / System)
             Card(
                 colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
                 border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
@@ -173,37 +173,42 @@ fun SettingsScreen(
                         Column {
                             Text("Appearance", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Choose System, Light, or Dark mode (player stays cinema-black).",
+                                text = "Choose Soft Dark (default), Light, Dark, or System mode (player stays cinema-black).",
                                 color = OpenScribeColors.TextSecondary,
                                 fontSize = 12.sp,
                             )
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ThemeMode.entries.forEach { mode ->
-                            val selected = settings.themeMode == mode
-                            FilterChip(
-                                selected = selected,
-                                onClick = { onSetThemeMode(mode) },
-                                label = {
-                                    Text(
-                                        text = mode.label,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp,
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ThemeMode.entries.chunked(2).forEach { rowModes ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                rowModes.forEach { mode ->
+                                    val selected = settings.themeMode == mode
+                                    FilterChip(
+                                        selected = selected,
+                                        onClick = { onSetThemeMode(mode) },
+                                        label = {
+                                            Text(
+                                                text = mode.label,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                                fontSize = 13.sp,
+                                                maxLines = 1,
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = OpenScribeColors.SagePrimary,
+                                            selectedLabelColor = Color.White,
+                                            containerColor = OpenScribeColors.SurfaceElevated,
+                                            labelColor = OpenScribeColors.TextPrimary,
+                                        ),
                                     )
-                                },
-                                modifier = Modifier.weight(1f),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = OpenScribeColors.SagePrimary,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = OpenScribeColors.SurfaceElevated,
-                                    labelColor = OpenScribeColors.TextPrimary,
-                                ),
-                            )
+                                }
+                            }
                         }
                     }
                 }

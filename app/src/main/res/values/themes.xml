@@ -1,9 +1,9 @@
 <resources>
-    <style name="Theme.OpenScribe" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#FAF7F0</item>
-        <item name="android:navigationBarColor">#FAF7F0</item>
-        <item name="android:windowBackground">#FAF7F0</item>
-        <item name="android:windowLightStatusBar">true</item>
+    <style name="Theme.OpenScribe" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#1E222A</item>
+        <item name="android:navigationBarColor">#1E222A</item>
+        <item name="android:windowBackground">#1E222A</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
     <style name="Theme.OpenScribe.TranslucentDialog" parent="android:Theme.Material.Light.Dialog.NoActionBar">
