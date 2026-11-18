@@ -37,7 +37,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 > [!TIP]
 > You can also paste links wrapped in Google, Instagram, or Facebook redirect URLs (`google.com/goto?url=...`, `l.instagram.com`, etc.)—SUBCOLAB unwraps them automatically.
 >
->  For first time/fresh session the "confirming  t4 gpu session" might take a bit of time--> try to cancel the job and start again 2,3 times. That might fix the allocation, or try "run previous" button if its there until "warm t4 gpu reused" signal comes 
+>  First-time / fresh session: "Confirming Colab T4 GPU allocation" can take a moment. If it stalls, cancel the job and start again 2–3 times, or tap "Run Previous" until you see "Reusing warm Colab T4 GPU runtime".
 ----
 ## ScreenShots
 <p align="center">
