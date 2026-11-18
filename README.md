@@ -14,7 +14,7 @@ Powered by Whisper `large-v3` on your own free Google Colab T4 GPU + built-in `l
 </div>
 
 ---
-##{For first time/fresh session the "confirming  t4 gpu session" might take a bit of time--> try to cancel the job and start again 2,3 times. That might fix the allocation, or run previous button if its there until "warm t4 gpu reused" signal comes}
+## {For first time/fresh session the "confirming  t4 gpu session" might take a bit of time--> try to cancel the job and start again 2,3 times. That might fix the allocation, or "run previous" button if its there until "warm t4 gpu reused" signal comes}  
 ## Why SUBCOLAB?
 
 Works on Most major video platforms—like YouTube, Dailymotion, Instagarm, Bilibili, Vimeo, TikTok, Twitch VODs, NicoNico, Reddit, X, etc .
