@@ -17,7 +17,7 @@ Powered by Whisper `large-v3` on your own free Google Colab T4 GPU + built-in `l
 
 ## Why SUBCOLAB?
 
-Most major video platforms—like **Dailymotion, Bilibili, Vimeo, TikTok, Twitch VODs, NicoNico, Reddit, X, and regional broadcasters**—do **not** offer built-in real-time English translation for foreign-language videos.
+Most major video platforms—like **YouTube, Dailymotion, Bilibili, Vimeo, TikTok, Twitch VODs, NicoNico, Reddit, X, and regional broadcasters**—do **not** offer built-in real-time English translation for foreign-language videos.
 
 **SUBCOLAB** solves this in a single standalone Android APK: share any video link or pick a local file, slice lightweight audio chunks directly on your phone, translate them with **Whisper `large-v3`** on your own **Google Colab T4 GPU**, and watch smoothly inside an embedded **`libmpv`** player with live-reloading English subtitles.
 
