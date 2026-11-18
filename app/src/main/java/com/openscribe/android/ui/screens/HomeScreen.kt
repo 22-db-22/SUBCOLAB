@@ -686,7 +686,7 @@ private fun TranslateTabContent(
     val context = LocalContext.current
     var overlayBannerDismissed by remember { mutableStateOf(false) }
     var quickTipsDismissed by remember { mutableStateOf(false) }
-    var quickTipsExpanded by remember { mutableStateOf(false) }
+    var quickTipsExpanded by remember { mutableStateOf(true) }
     var jobResultDismissed by remember { mutableStateOf(false) }
     var previousCardDismissed by remember { mutableStateOf(false) }
     val needsOverlayPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
@@ -933,6 +933,12 @@ private fun TranslateTabContent(
                                 modifier = Modifier.padding(start = 38.dp, bottom = 4.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
+                                Text(
+            text = "• First-time / fresh session: \"Confirming Colab T4 GPU allocation\" can take a moment. If it stalls, cancel the job and start again 2–3 times, or tap \"Run Previous\" until you see \"Reusing warm Colab T4 GPU runtime\".",
+            color = OpenScribeColors.TextSecondary,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+        )
                                 Text(
                                     text = "• Share any video from Dailymotion, Bilibili, Vimeo, Twitch, TikTok, browsers, or YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
                                     color = OpenScribeColors.TextSecondary,
