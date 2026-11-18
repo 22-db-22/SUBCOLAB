@@ -43,9 +43,19 @@ const SAMPLE_CUES: SimCue[] = [
   { timeSec: 25, text: 'First sip... wow, deep umami and zero heaviness!' },
 ];
 
+const SAMPLE_PLATFORMS: { label: string; url: string }[] = [
+  { label: 'Dailymotion', url: 'https://www.dailymotion.com/video/x8m7q2p' },
+  { label: 'Bilibili', url: 'https://www.bilibili.com/video/BV1GJ411x7h7' },
+  { label: 'Vimeo', url: 'https://vimeo.com/76979871' },
+  { label: 'TikTok', url: 'https://www.tiktok.com/@scout2015/video/6718335390845095173' },
+  { label: 'Twitch VOD', url: 'https://www.twitch.tv/videos/1984729104' },
+  { label: 'NicoNico', url: 'https://www.nicovideo.jp/watch/sm9' },
+  { label: 'YouTube (Fallback)', url: 'https://www.google.com/goto?url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FdQw4w9WgXcQ' },
+];
+
 export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
   const [rawUrl, setRawUrl] = useState(
-    'https://www.google.com/goto?url=https%3A%2F%2Fwww.youtube.com%2Fshorts%2FdQw4w9WgXcQ',
+    'https://www.dailymotion.com/video/x8m7q2p',
   );
   const [selectedLang, setSelectedLang] = useState('auto');
   const [langQuery, setLangQuery] = useState('');
@@ -131,7 +141,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
       setStatusLine(
         selectedMode === 'WATCH_NOW'
           ? 'Live Stream + all 5 cues ready (subtitles saved)'
-          : 'Saved full MP4 + SRT/ASS/VTT to Downloads/OpenScribe/',
+          : 'Saved full MP4 + SRT/ASS/VTT to Downloads/SUBCOLAB/',
       );
       setHasPreviousCache(true);
       setIsRunning(false);
@@ -200,15 +210,39 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
               type="button"
               onClick={() => {
                 setRawUrl(
-                  'Watch this! https://www.youtube.com/shorts/jNQXAC9IVRw?feature=share',
+                  'Check this clip! https://www.dailymotion.com/video/x8m7q2p',
                 );
                 setScreen('sheet');
               }}
               className="inline-flex items-center gap-2 rounded-xl border border-[#5B9BD5]/50 bg-[#DDF0FB] px-3.5 py-2 text-xs font-semibold text-[#2B6CB0] transition hover:bg-[#cde6f8]"
             >
               <Share2 className="h-3.5 w-3.5" />
-              Simulate YouTube Share Intent
+              Simulate App Share Intent
             </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span className={`mr-1 text-xs font-semibold ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+              Try Supported Sites:
+            </span>
+            {SAMPLE_PLATFORMS.map((site) => (
+              <button
+                key={site.label}
+                type="button"
+                onClick={() => setRawUrl(site.url)}
+                className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  rawUrl.includes(site.url.split('/')[2] ?? '')
+                    ? isDark
+                      ? 'border-[#2563EB] bg-[#172554] text-[#60A5FA]'
+                      : 'border-[#2E7D5B] bg-[#DCEFE5] text-[#2E7D5B]'
+                    : isDark
+                      ? 'border-[#283449] bg-[#0B0F17] text-[#94A3B8] hover:text-white'
+                      : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#5A6860] hover:text-[#1C2621]'
+                }`}
+              >
+                {site.label}
+              </button>
+            ))}
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -382,10 +416,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
             }`}
           >
             <span className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>
-              Created by{' '}
-              <strong className={isDark ? 'text-white' : 'text-[#1C2621]'}>
-                writtenwithharmony@gmail.com
-              </strong>
+              Open Source Repository
             </span>
             <a
               href="https://github.com/22-db-22/SUBCOLAB"
@@ -613,22 +644,35 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
               </div>
 
               {showAbout && (
-                <div className="space-y-1.5 rounded-2xl border border-[#E2DCCD] bg-white p-3 text-[11px] shadow-sm">
+                <div
+                  className={`space-y-1.5 rounded-2xl border p-3 text-[11px] shadow-sm ${
+                    isDark
+                      ? 'border-[#283449] bg-[#131A26] text-[#F8FAFC]'
+                      : 'border-[#E2DCCD] bg-white text-[#1C2621]'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#1C2621]">SUBCOLAB v1.0</span>
+                    <span className="font-bold">SUBCOLAB v1.0</span>
                     <button
                       type="button"
                       onClick={() => setShowAbout(false)}
                       aria-label="Close about"
-                      className="text-[#5A6860]"
+                      className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <p className="text-[#5A6860]">Created by writtenwithharmony@gmail.com</p>
-                  <p className="font-medium text-[#2B6CB0]">
+                  <a
+                    href="https://github.com/22-db-22/SUBCOLAB"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`inline-flex items-center gap-1 font-medium hover:underline ${
+                      isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
+                    }`}
+                  >
                     github.com/22-db-22/SUBCOLAB
-                  </p>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
                 </div>
               )}
 
@@ -653,8 +697,8 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                       Quick Tip
                     </p>
                     <p className={isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}>
-                      Share directly from YouTube → SUBCOLAB, or swipe left/right in the player
-                      for brightness &amp; volume.
+                      Share from Dailymotion, Bilibili, Vimeo, TikTok, or YouTube → SUBCOLAB, or
+                      swipe left/right in the player for brightness &amp; volume.
                     </p>
                   </div>
                   <button
@@ -709,15 +753,23 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
 
               {/* Language & Mode Config Sheet */}
               {screen === 'sheet' && (
-                <div className="space-y-3 rounded-2xl border border-[#2E7D5B]/45 bg-white p-3 shadow-sm">
+                <div
+                  className={`space-y-3 rounded-2xl border p-3 shadow-sm ${
+                    isDark
+                      ? 'border-[#2563EB]/45 bg-[#131A26] text-white'
+                      : 'border-[#2E7D5B]/45 bg-white text-[#1C2621]'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1C2621]">
+                    <span className="text-xs font-bold">
                       Source Language (~99)
                     </span>
                     <button
                       type="button"
                       onClick={() => setShowLangSearch((s) => !s)}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#2B6CB0]"
+                      className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                        isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
+                      }`}
                     >
                       <Search className="h-3 w-3" />
                       {showLangSearch ? 'Hide Search' : 'Search All'}
@@ -732,8 +784,12 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                         onClick={() => setSelectedLang(lang.code)}
                         className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
                           selectedLang === lang.code
-                            ? 'bg-[#DCEFE5] text-[#2E7D5B] ring-1 ring-[#2E7D5B]/50'
-                            : 'bg-[#F1ECE1] text-[#5A6860]'
+                            ? isDark
+                              ? 'bg-[#172554] text-[#60A5FA] ring-1 ring-[#2563EB]/60'
+                              : 'bg-[#DCEFE5] text-[#2E7D5B] ring-1 ring-[#2E7D5B]/50'
+                            : isDark
+                              ? 'bg-[#0B0F17] text-[#94A3B8]'
+                              : 'bg-[#F1ECE1] text-[#5A6860]'
                         }`}
                       >
                         {lang.code}
@@ -749,7 +805,11 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                         placeholder="Search e.g. spanish, yue, hangul..."
                         value={langQuery}
                         onChange={(e) => setLangQuery(e.target.value)}
-                        className="w-full rounded-lg border border-[#E2DCCD] bg-[#FAF7F0] px-2.5 py-1.5 text-xs text-[#1C2621]"
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs ${
+                          isDark
+                            ? 'border-[#283449] bg-[#0B0F17] text-white'
+                            : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#1C2621]'
+                        }`}
                       />
                       <div className="max-h-24 space-y-1 overflow-y-auto">
                         {filteredLanguages.slice(0, 6).map((l) => (
@@ -760,10 +820,12 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                               setSelectedLang(l.code);
                               setShowLangSearch(false);
                             }}
-                            className="flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11px] text-[#1C2621] hover:bg-[#F1ECE1]"
+                            className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11px] ${
+                              isDark ? 'text-white hover:bg-[#1B2434]' : 'text-[#1C2621] hover:bg-[#F1ECE1]'
+                            }`}
                           >
                             <span>{l.name}</span>
-                            <span className="font-mono font-semibold text-[#2B6CB0]">
+                            <span className={`font-mono font-semibold ${isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'}`}>
                               {l.code}
                             </span>
                           </button>
@@ -798,7 +860,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                       Watch Now
                     </button>
                   </div>
-                  <p className="text-[10px] leading-relaxed text-[#5A6860]">
+                  <p className={`text-[10px] leading-relaxed ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
                     Watch Now streams smoothly &amp; auto-opens over other apps once initial subs
                     arrive. Download saves full MP4 quietly in background.
                   </p>
@@ -807,16 +869,22 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
 
               {/* Active Progress / Warm Reuse */}
               {(isRunning || cueCount > 0 || isGpuWarm) && (
-                <div className="space-y-2.5 rounded-2xl border border-[#E2DCCD] bg-white p-3 shadow-xs">
+                <div
+                  className={`space-y-2.5 rounded-2xl border p-3 shadow-xs ${
+                    isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     {isRunning ? (
                       <Loader2 className="h-4 w-4 animate-spin text-[#5B9BD5]" />
                     ) : (
                       <CheckCircle2 className="h-4 w-4 text-[#16A34A]" />
                     )}
-                    <p className="text-xs font-semibold text-[#1C2621]">{statusLine}</p>
+                    <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                      {statusLine}
+                    </p>
                   </div>
-                  <p className="text-[11px] text-[#5A6860]">
+                  <p className={`text-[11px] ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
                     {cueCount} cues • {completedChunks.length} chunk(s) • lang={selectedLang}
                   </p>
                   {cueCount >= 4 && (
@@ -833,9 +901,15 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
               )}
 
               {isGpuWarm && !isRunning && (
-                <div className="space-y-2 rounded-2xl border border-[#5B9BD5]/40 bg-white p-3 shadow-xs">
+                <div
+                  className={`space-y-2 rounded-2xl border p-3 shadow-xs ${
+                    isDark ? 'border-[#38BDF8]/40 bg-[#131A26]' : 'border-[#5B9BD5]/40 bg-white'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#2B6CB0]">Warm T4 Reuse</span>
+                    <span className={`text-xs font-semibold ${isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'}`}>
+                      Warm T4 Reuse
+                    </span>
                     <button
                       type="button"
                       onClick={() => {
@@ -890,8 +964,9 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                     Single-APK Ready
                   </p>
                   <p>
-                    Share any video from YouTube or tap Configure above. Watch Now live-streams
-                    smoothly and auto-opens once initial subtitles arrive.
+                    Share any video from Dailymotion, Bilibili, Vimeo, TikTok, Twitch, browsers, or
+                    YouTube. Watch Now live-streams smoothly and auto-opens once initial subtitles
+                    arrive.
                   </p>
                   <div className="flex flex-wrap gap-1.5 pt-1 text-[10px] font-semibold">
                     <span

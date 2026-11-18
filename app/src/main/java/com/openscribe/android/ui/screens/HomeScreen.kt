@@ -831,7 +831,7 @@ private fun TranslateTabContent(
                                 fontSize = 13.sp,
                             )
                             Text(
-                                text = "Allow once so Watch Now opens automatically over YouTube when initial subs arrive.",
+                                text = "Allow once so Watch Now opens automatically over Dailymotion, Bilibili, browsers, or YouTube when initial subs arrive.",
                                 color = OpenScribeColors.TextPrimary,
                                 fontSize = 11.sp,
                             )
@@ -901,7 +901,7 @@ private fun TranslateTabContent(
                                 )
                                 if (!quickTipsExpanded) {
                                     Text(
-                                        text = "Share directly from YouTube -> SUBCOLAB, or swipe in player for brightness & volume",
+                                        text = "Share from Dailymotion, Bilibili, Vimeo, TikTok, or YouTube -> SUBCOLAB, or swipe in player",
                                         color = OpenScribeColors.TextSecondary,
                                         fontSize = 11.sp,
                                         maxLines = 1,
@@ -934,7 +934,7 @@ private fun TranslateTabContent(
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Text(
-                                    text = "• Share any video from YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
+                                    text = "• Share any video from Dailymotion, Bilibili, Vimeo, Twitch, TikTok, browsers, or YouTube -> SUBCOLAB and pick Watch Now (live stream) or Download (full MP4).",
                                     color = OpenScribeColors.TextSecondary,
                                     fontSize = 11.sp,
                                     lineHeight = 16.sp,
@@ -1213,7 +1213,7 @@ private fun TranslateTabContent(
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
                         Text(
-                            "Paste YouTube or video URL (or Share -> SUBCOLAB)",
+                            "Paste Dailymotion, Bilibili, Vimeo, TikTok, or YouTube URL (or Share -> SUBCOLAB)",
                             fontSize = 13.sp,
                             color = OpenScribeColors.TextSecondary,
                         )

@@ -598,9 +598,9 @@ fun SettingsScreen(
                     Text("Auto-Open Player Over Other Apps", style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = if (canDrawOverlays) {
-                            "Enabled — when you share a link and tap Watch Now, SUBCOLAB will automatically pop open over YouTube or any other app as soon as initial subtitles are ready."
+                            "Enabled — when you share a link and tap Watch Now, SUBCOLAB will automatically pop open over Dailymotion, Bilibili, browsers, or YouTube as soon as initial subtitles are ready."
                         } else {
-                            "Allow 'Display over other apps' so Watch Now can automatically open the video player over YouTube/browsers when initial subtitles arrive."
+                            "Allow 'Display over other apps' so Watch Now can automatically open the video player over Dailymotion, Bilibili, browsers, or YouTube when initial subtitles arrive."
                         },
                         color = if (canDrawOverlays) OpenScribeColors.SuccessGreen else OpenScribeColors.TextSecondary,
                         fontSize = 12.sp,

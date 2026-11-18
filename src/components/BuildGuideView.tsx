@@ -21,11 +21,11 @@ const STEPS = [
   {
     icon: Terminal,
     title: '4. Share Any Video -> Watch Now or Download',
-    body: 'Allow "Display over other apps" once so Watch Now auto-opens over YouTube. Share a video -> pick Language -> tap Watch Now (smooth live stream + adaptive audio-only subs) or Download (full <=720p MP4 quietly in background).',
+    body: 'Allow "Display over other apps" once so Watch Now auto-opens over source apps. Share from Dailymotion, Bilibili, Vimeo, TikTok, Twitch, NicoNico, browsers, or YouTube -> pick Language -> tap Watch Now (smooth live stream + adaptive audio-only subs) or Download (full <=720p MP4 quietly in background).',
   },
 ];
 
-export function BuildGuideView() {
+export function BuildGuideView({ isDark = false }: { isDark?: boolean }) {
   return (
     <div className="space-y-4">
       {STEPS.map((step) => {
@@ -33,17 +33,41 @@ export function BuildGuideView() {
         return (
           <div
             key={step.title}
-            className="rounded-2xl border border-[#E2DCCD] bg-white p-5 shadow-sm"
+            className={`rounded-2xl border p-5 shadow-sm ${
+              isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+            }`}
           >
             <div className="flex items-start gap-3.5">
-              <div className="rounded-xl bg-[#DCEFE5] p-2.5 text-[#2E7D5B]">
+              <div
+                className={`rounded-xl p-2.5 ${
+                  isDark ? 'bg-[#172554] text-[#60A5FA]' : 'bg-[#DCEFE5] text-[#2E7D5B]'
+                }`}
+              >
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-sm font-semibold text-[#1C2621]">{step.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-[#5A6860]">{step.body}</p>
+                <h3
+                  className={`text-sm font-semibold ${
+                    isDark ? 'text-white' : 'text-[#1C2621]'
+                  }`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={`mt-1.5 text-xs leading-relaxed ${
+                    isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'
+                  }`}
+                >
+                  {step.body}
+                </p>
                 {step.code && (
-                  <pre className="mt-3 overflow-x-auto rounded-xl border border-[#E2DCCD] bg-[#FAF7F0] p-3 font-mono text-[11px] text-[#2B6CB0]">
+                  <pre
+                    className={`mt-3 overflow-x-auto rounded-xl border p-3 font-mono text-[11px] ${
+                      isDark
+                        ? 'border-[#283449] bg-[#0B0F17] text-[#60A5FA]'
+                        : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#2B6CB0]'
+                    }`}
+                  >
                     {step.code}
                   </pre>
                 )}

@@ -64,7 +64,7 @@ import com.openscribe.android.util.UrlUnwrapper
 import kotlinx.coroutines.delay
 
 /**
- * Compact floating dialog shown directly on top of YouTube/browsers when sharing a link.
+ * Compact floating dialog shown directly on top of Dailymotion, Bilibili, browsers, or YouTube when sharing a link.
  * Lets the user pick the source language and choose between:
  * - Watch Now: smooth live video stream + adaptive chunked audio subtitles, auto-opens player
  * - Download: full <=720p MP4 + subtitles saved quietly in background

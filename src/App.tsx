@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { BookOpen, Cpu, ExternalLink, Moon, Smartphone, Sun } from 'lucide-react';
+import { BookOpen, Compass, Cpu, ExternalLink, Moon, Smartphone, Sun } from 'lucide-react';
 import { ArchitectureView } from './components/ArchitectureView';
 import { BuildGuideView } from './components/BuildGuideView';
 import { PhonePreview } from './components/PhonePreview';
+import { RoadmapView } from './components/RoadmapView';
 
-type TabId = 'preview' | 'architecture' | 'guide';
+type TabId = 'preview' | 'architecture' | 'guide' | 'roadmap';
 
 function SubcolabLogo({ className = 'h-10 w-10' }: { className?: string }) {
   return (
@@ -112,7 +113,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setActiveTab('guide')}
-                className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                className={`inline-flex items-center gap-2 whitespace-nowrap shrink-0 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
                   activeTab === 'guide'
                     ? isDark
                       ? 'bg-[#2563EB] text-white shadow-sm'
@@ -124,6 +125,22 @@ export default function App() {
               >
                 <BookOpen className="h-4 w-4" />
                 Release Guide
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('roadmap')}
+                className={`inline-flex items-center gap-2 whitespace-nowrap shrink-0 rounded-xl px-3.5 py-2 text-xs font-semibold transition ${
+                  activeTab === 'roadmap'
+                    ? isDark
+                      ? 'bg-[#2563EB] text-white shadow-sm'
+                      : 'bg-[#2E7D5B] text-white shadow-sm'
+                    : isDark
+                      ? 'border border-[#283449] bg-[#131A26] text-[#94A3B8] hover:bg-[#1B2434] hover:text-white'
+                      : 'border border-[#E2DCCD] bg-white text-[#5A6860] hover:bg-[#F1ECE1] hover:text-[#1C2621]'
+                }`}
+              >
+                <Compass className="h-4 w-4" />
+                Roadmap
               </button>
             </nav>
 
@@ -146,8 +163,9 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {activeTab === 'preview' && <PhonePreview isDark={isDark} />}
-        {activeTab === 'architecture' && <ArchitectureView />}
-        {activeTab === 'guide' && <BuildGuideView />}
+        {activeTab === 'architecture' && <ArchitectureView isDark={isDark} />}
+        {activeTab === 'guide' && <BuildGuideView isDark={isDark} />}
+        {activeTab === 'roadmap' && <RoadmapView isDark={isDark} />}
       </main>
 
       <footer
@@ -162,10 +180,7 @@ export default function App() {
             <span className={`font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
               SUBCOLAB v1.0
             </span>
-            {' • '}GPL-3.0 • Based on OpenScribe (MIT) by Faisal Saddique • Created by{' '}
-            <span className={`font-medium ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
-              writtenwithharmony@gmail.com
-            </span>
+            {' • '}GPL-3.0 • Based on OpenScribe (MIT) by Faisal Saddique
           </div>
           <a
             href="https://github.com/22-db-22/SUBCOLAB"
