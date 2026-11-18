@@ -88,6 +88,11 @@ class ColabClient(
         message: String,
     ) : IOException(message)
 
+    private class ColabQuotaDeniedException(
+        val outcome: Int,
+        message: String,
+    ) : IllegalStateException(message)
+
     companion object {
         private const val TAG = "ColabClient"
         private const val COLAB_DOMAIN = "https://colab.research.google.com"
@@ -177,6 +182,12 @@ class ColabClient(
     private fun stripXssi(body: String): String {
         return if (body.startsWith(XSSI_PREFIX)) body.removePrefix(XSSI_PREFIX) else body
     }
+
+    private fun parseColabOutcome(raw: String): Int? = runCatching {
+        val cleaned = stripXssi(raw).trim()
+        if (!cleaned.startsWith("{")) return@runCatching null
+        json.parseToJsonElement(cleaned).jsonObject["outcome"]?.jsonPrimitive?.content?.toIntOrNull()
+    }.getOrNull()
 
     suspend fun ensureWarmT4Runtime(
         onStatus: (String) -> Unit,
@@ -339,14 +350,21 @@ class ColabClient(
                                 if (resp.code == 412) {
                                     throw IllegalStateException("Too many active Colab sessions (412). Free a session in Colab and retry.")
                                 }
+                                val outcome = parseColabOutcome(raw)
+                                if (outcome == 2 || outcome == 5) {
+                                    throw ColabQuotaDeniedException(
+                                        outcome = outcome,
+                                        message = "Google Colab free T4 GPU quota reached or temporarily busy (outcome=$outcome). Please wait for Colab's cooldown, close other Colab sessions, or switch Google accounts in Settings.",
+                                    )
+                                }
                                 if (resp.code == 502 || resp.code == 503 || resp.code == 504) {
                                     throw TransientColabAssignException(
                                         resp.code,
-                                        "Colab T4 GPU allocation gateway error (${resp.code}): ${raw.take(200)}",
+                                        "Colab gateway temporarily busy (${resp.code}).",
                                     )
                                 }
                                 if (!resp.isSuccessful) {
-                                    throw IllegalStateException("Colab T4 GPU allocation failed (${resp.code}): $raw")
+                                    throw IllegalStateException("Colab T4 GPU allocation failed (${resp.code}).")
                                 }
                                 stripXssi(raw)
                             }
@@ -396,6 +414,15 @@ class ColabClient(
                 throw ce
             } catch (t: Throwable) {
                 lastError = t
+                if (t is ColabQuotaDeniedException) {
+                    AppLogger.w(TAG, "Colab T4 quota/capacity denied (outcome=${t.outcome}) on attempt ${attempt + 1} for nbh=${nbh.take(12)}")
+                    if (attempt == 0) {
+                        onStatus("Colab T4 GPUs are currently busy — retrying once in 5s...")
+                        delay(5_000L)
+                        continue
+                    }
+                    throw t
+                }
                 val isRetryable = t is SocketTimeoutException ||
                     t is TransientColabAssignException ||
                     t is IOException

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -41,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +61,7 @@ import com.openscribe.android.model.WorkflowMode
 import com.openscribe.android.ui.theme.OpenScribeColors
 import com.openscribe.android.ui.theme.OpenScribeTheme
 import com.openscribe.android.util.UrlUnwrapper
+import kotlinx.coroutines.delay
 
 /**
  * Compact floating dialog shown directly on top of YouTube/browsers when sharing a link.
@@ -84,22 +87,36 @@ class SharePromptActivity : ComponentActivity() {
 
         setContent {
             val settings by app.settingsRepository.settings.collectAsState()
+            var showWatchNowNotice by remember { mutableStateOf(false) }
+
             OpenScribeTheme(themeMode = settings.themeMode) {
-                ShareOverlayCard(
-                    cleanUrl = cleanUrl,
-                    initialLang = initialLang,
-                    onCancel = { finish() },
-                    onStart = { selectedLang, workflowMode ->
-                        app.coordinator.startUrlJob(
-                            rawUrl = cleanUrl,
-                            sourceLang = selectedLang,
-                            workflowMode = workflowMode,
-                            fromExternalShare = true,
-                            reusePreviousCache = false,
-                        )
+                if (showWatchNowNotice) {
+                    LaunchedEffect(Unit) {
+                        delay(3_500L)
                         finish()
-                    },
-                )
+                    }
+                    WatchNowStartedNotice(onDismiss = { finish() })
+                } else {
+                    ShareOverlayCard(
+                        cleanUrl = cleanUrl,
+                        initialLang = initialLang,
+                        onCancel = { finish() },
+                        onStart = { selectedLang, workflowMode ->
+                            app.coordinator.startUrlJob(
+                                rawUrl = cleanUrl,
+                                sourceLang = selectedLang,
+                                workflowMode = workflowMode,
+                                fromExternalShare = true,
+                                reusePreviousCache = false,
+                            )
+                            if (workflowMode == WorkflowMode.WATCH_NOW) {
+                                showWatchNowNotice = true
+                            } else {
+                                finish()
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -112,6 +129,50 @@ class SharePromptActivity : ComponentActivity() {
             }
             Intent.ACTION_VIEW -> intent.dataString.orEmpty()
             else -> ""
+        }
+    }
+}
+
+@Composable
+private fun WatchNowStartedNotice(
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        color = OpenScribeColors.SurfaceDark,
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, OpenScribeColors.SagePrimary.copy(alpha = 0.65f)),
+        modifier = Modifier
+            .widthIn(min = 300.dp, max = 400.dp)
+            .fillMaxWidth()
+            .clickable { onDismiss() },
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(28.dp),
+                color = OpenScribeColors.SagePrimary,
+                strokeWidth = 3.dp,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "SUBCOLAB is translating...",
+                    color = OpenScribeColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    text = "Please wait — the video will open automatically once initial subtitles are downloaded.",
+                    color = OpenScribeColors.TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
         }
     }
 }

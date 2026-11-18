@@ -958,6 +958,236 @@ private fun TranslateTabContent(
             }
         }
 
+        // Active / Latest Job Progress Card (placed FIRST above Paste Video Link so shared/live jobs are immediately visible)
+        if (jobState.phase != JobPhase.IDLE && (isRunning || !jobResultDismissed)) {
+            val jobStatusCardContent: @Composable () -> Unit = {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
+                    border = BorderStroke(
+                        1.dp,
+                        when (jobState.phase) {
+                            JobPhase.ERROR -> OpenScribeColors.DangerRed.copy(alpha = 0.6f)
+                            JobPhase.COMPLETED -> OpenScribeColors.SuccessGreen.copy(alpha = 0.6f)
+                            else -> OpenScribeColors.GpuCyan.copy(alpha = 0.5f)
+                        },
+                    ),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            when {
+                                isRunning -> CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = OpenScribeColors.GpuCyan,
+                                    strokeWidth = 2.5.dp,
+                                )
+                                jobState.phase == JobPhase.COMPLETED -> Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.SuccessGreen,
+                                )
+                                jobState.phase == JobPhase.ERROR -> Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.DangerRed,
+                                )
+                                else -> Icon(
+                                    Icons.Default.Memory,
+                                    contentDescription = null,
+                                    tint = OpenScribeColors.SubtitleYellow,
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = jobState.statusMessage,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = OpenScribeColors.TextPrimary,
+                                )
+                                val origPart = if (jobState.origCueCount > 0) {
+                                    " + ${jobState.origCueCount} ${jobState.detectedOrigLang?.uppercase() ?: "orig"}"
+                                } else ""
+                                Text(
+                                    text = "${jobState.titleSlug.replace('_', ' ')} • ${jobState.cueCount} EN$origPart cues",
+                                    fontSize = 12.sp,
+                                    color = OpenScribeColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+
+                        if (jobState.mode == WorkflowMode.DOWNLOAD_AND_TRANSLATE &&
+                            (isRunning || jobState.savePackStatus == SavePackStatus.SAVING)
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = jobState.saveStatusText ?: "Video download",
+                                        fontSize = 11.sp,
+                                        color = OpenScribeColors.TextSecondary,
+                                    )
+                                    Text(
+                                        text = "${jobState.saveProgressPercent}%",
+                                        fontSize = 11.sp,
+                                        color = OpenScribeColors.SubtitleYellow,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { (jobState.saveProgressPercent.coerceIn(0, 100) / 100f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(4.dp)),
+                                    color = OpenScribeColors.SubtitleYellow,
+                                    trackColor = OpenScribeColors.SurfaceElevated,
+                                )
+                            }
+                        }
+
+                        if (!jobState.translationProgressText.isNullOrBlank() && isRunning) {
+                            Text(
+                                text = "Subtitles: ${jobState.translationProgressText}",
+                                fontSize = 11.sp,
+                                color = OpenScribeColors.GpuCyan,
+                            )
+                            if (!jobState.chunkDownloadStatus.isNullOrBlank()) {
+                                Text(
+                                    text = "Stream: ${jobState.chunkDownloadStatus}",
+                                    fontSize = 11.sp,
+                                    color = OpenScribeColors.SubtitleYellow,
+                                )
+                            }
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = OpenScribeColors.GpuCyan,
+                                trackColor = OpenScribeColors.SurfaceElevated,
+                            )
+                        }
+
+                        if (!jobState.errorMessage.isNullOrBlank()) {
+                            Text(
+                                text = jobState.errorMessage,
+                                color = OpenScribeColors.DangerRed,
+                                fontSize = 12.sp,
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            if (jobState.isPlayerReady &&
+                                (jobState.playableVideoSource != null || jobState.playableChunks.isNotEmpty()) &&
+                                jobState.cueCount > 0
+                            ) {
+                                val isStreamingLive = jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null
+                                Button(
+                                    onClick = onOpenPlayer,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = OpenScribeColors.SubtitleYellow,
+                                        contentColor = OpenScribeColors.Obsidian,
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isStreamingLive) "Watch Live" else "Watch Now",
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (jobState.savedPacks.isNotEmpty() && !isRunning) {
+                                OutlinedButton(
+                                    onClick = onJumpToDownloads,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.6f)),
+                                ) {
+                                    Text(
+                                        text = "Downloads (${jobState.savedPacks.size})",
+                                        color = OpenScribeColors.GpuCyan,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (isRunning) {
+                                OutlinedButton(
+                                    onClick = onCancelJob,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
+                                ) {
+                                    Text(
+                                        text = "Cancel Job",
+                                        color = OpenScribeColors.TextPrimary,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (jobState.phase == JobPhase.ERROR) {
+                                OutlinedButton(
+                                    onClick = onOpenDebugLogs,
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.BugReport,
+                                        contentDescription = null,
+                                        tint = OpenScribeColors.DangerRed,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Debug Logs",
+                                        color = OpenScribeColors.DangerRed,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isRunning) {
+                jobStatusCardContent()
+            } else {
+                SwipeDismissibleBanner(onDismiss = { jobResultDismissed = true }) {
+                    jobStatusCardContent()
+                }
+            }
+        }
+
         // Card 1: Paste Video Link (with integrated Spoken Language selector)
         Card(
             colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
@@ -1227,236 +1457,6 @@ private fun TranslateTabContent(
                             textAlign = TextAlign.Center,
                         )
                     }
-                }
-            }
-        }
-
-        // Active / Latest Job Progress Card (swipe-to-dismiss ONLY when not actively running)
-        if (jobState.phase != JobPhase.IDLE && (isRunning || !jobResultDismissed)) {
-            val jobStatusCardContent: @Composable () -> Unit = {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = OpenScribeColors.SurfaceDark),
-                    border = BorderStroke(
-                        1.dp,
-                        when (jobState.phase) {
-                            JobPhase.ERROR -> OpenScribeColors.DangerRed.copy(alpha = 0.6f)
-                            JobPhase.COMPLETED -> OpenScribeColors.SuccessGreen.copy(alpha = 0.6f)
-                            else -> OpenScribeColors.GpuCyan.copy(alpha = 0.5f)
-                        },
-                    ),
-                    shape = RoundedCornerShape(18.dp),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            when {
-                                isRunning -> CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = OpenScribeColors.GpuCyan,
-                                    strokeWidth = 2.5.dp,
-                                )
-                                jobState.phase == JobPhase.COMPLETED -> Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = OpenScribeColors.SuccessGreen,
-                                )
-                                jobState.phase == JobPhase.ERROR -> Icon(
-                                    Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint = OpenScribeColors.DangerRed,
-                                )
-                                else -> Icon(
-                                    Icons.Default.Memory,
-                                    contentDescription = null,
-                                    tint = OpenScribeColors.SubtitleYellow,
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = jobState.statusMessage,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp,
-                                    color = OpenScribeColors.TextPrimary,
-                                )
-                                val origPart = if (jobState.origCueCount > 0) {
-                                    " + ${jobState.origCueCount} ${jobState.detectedOrigLang?.uppercase() ?: "orig"}"
-                                } else ""
-                                Text(
-                                    text = "${jobState.titleSlug.replace('_', ' ')} • ${jobState.cueCount} EN$origPart cues",
-                                    fontSize = 12.sp,
-                                    color = OpenScribeColors.TextSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-
-                        if (jobState.mode == WorkflowMode.DOWNLOAD_AND_TRANSLATE &&
-                            (isRunning || jobState.savePackStatus == SavePackStatus.SAVING)
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        text = jobState.saveStatusText ?: "Video download",
-                                        fontSize = 11.sp,
-                                        color = OpenScribeColors.TextSecondary,
-                                    )
-                                    Text(
-                                        text = "${jobState.saveProgressPercent}%",
-                                        fontSize = 11.sp,
-                                        color = OpenScribeColors.SubtitleYellow,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                                LinearProgressIndicator(
-                                    progress = { (jobState.saveProgressPercent.coerceIn(0, 100) / 100f) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(4.dp)),
-                                    color = OpenScribeColors.SubtitleYellow,
-                                    trackColor = OpenScribeColors.SurfaceElevated,
-                                )
-                            }
-                        }
-
-                        if (!jobState.translationProgressText.isNullOrBlank() && isRunning) {
-                            Text(
-                                text = "Subtitles: ${jobState.translationProgressText}",
-                                fontSize = 11.sp,
-                                color = OpenScribeColors.GpuCyan,
-                            )
-                            if (!jobState.chunkDownloadStatus.isNullOrBlank()) {
-                                Text(
-                                    text = "Stream: ${jobState.chunkDownloadStatus}",
-                                    fontSize = 11.sp,
-                                    color = OpenScribeColors.SubtitleYellow,
-                                )
-                            }
-                            LinearProgressIndicator(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp)),
-                                color = OpenScribeColors.GpuCyan,
-                                trackColor = OpenScribeColors.SurfaceElevated,
-                            )
-                        }
-
-                        if (!jobState.errorMessage.isNullOrBlank()) {
-                            Text(
-                                text = jobState.errorMessage,
-                                color = OpenScribeColors.DangerRed,
-                                fontSize = 12.sp,
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            if (jobState.isPlayerReady &&
-                                (jobState.playableVideoSource != null || jobState.playableChunks.isNotEmpty()) &&
-                                jobState.cueCount > 0
-                            ) {
-                                val isStreamingLive = jobState.playableChunks.isNotEmpty() && jobState.playableVideoSource == null
-                                Button(
-                                    onClick = onOpenPlayer,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = OpenScribeColors.SubtitleYellow,
-                                        contentColor = OpenScribeColors.Obsidian,
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isStreamingLive) "Watch Live" else "Watch Now",
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                            if (jobState.savedPacks.isNotEmpty() && !isRunning) {
-                                OutlinedButton(
-                                    onClick = onJumpToDownloads,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, OpenScribeColors.GpuCyan.copy(alpha = 0.6f)),
-                                ) {
-                                    Text(
-                                        text = "Downloads (${jobState.savedPacks.size})",
-                                        color = OpenScribeColors.GpuCyan,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                            if (isRunning) {
-                                OutlinedButton(
-                                    onClick = onCancelJob,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, OpenScribeColors.BorderSubtle),
-                                ) {
-                                    Text(
-                                        text = "Cancel Job",
-                                        color = OpenScribeColors.TextPrimary,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                            if (jobState.phase == JobPhase.ERROR) {
-                                OutlinedButton(
-                                    onClick = onOpenDebugLogs,
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, OpenScribeColors.DangerRed.copy(alpha = 0.6f)),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.BugReport,
-                                        contentDescription = null,
-                                        tint = OpenScribeColors.DangerRed,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Debug Logs",
-                                        color = OpenScribeColors.DangerRed,
-                                        fontSize = 12.sp,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (isRunning) {
-                jobStatusCardContent()
-            } else {
-                SwipeDismissibleBanner(onDismiss = { jobResultDismissed = true }) {
-                    jobStatusCardContent()
                 }
             }
         }
