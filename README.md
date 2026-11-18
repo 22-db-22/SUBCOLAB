@@ -17,11 +17,9 @@ Powered by Whisper `large-v3` on your own free Google Colab T4 GPU + built-in `l
 
 ## Why SUBCOLAB?
 
-Most major video platforms—like **YouTube, Dailymotion, Bilibili, Vimeo, TikTok, Twitch VODs, NicoNico, Reddit, X, and regional broadcasters**—do **not** offer built-in real-time English translation for foreign-language videos.
+Works on Most major video platforms—like YouTube, Dailymotion, Instagarm, Bilibili, Vimeo, TikTok, Twitch VODs, NicoNico, Reddit, X, etc .
 
-**SUBCOLAB** solves this in a single standalone Android APK: share any video link or pick a local file, slice lightweight audio chunks directly on your phone, translate them with **Whisper `large-v3`** on your own **Google Colab T4 GPU**, and watch smoothly inside an embedded **`libmpv`** player with live-reloading English subtitles.
-
-*(Because YouTube already provides built-in auto-translated captions on most videos, SUBCOLAB focuses primarily on platforms that lack native translation—while still supporting YouTube whenever captions are disabled, region-locked, or inaccurate.)*
+**SUBCOLAB** solves subtitles/translation issue in a single standalone Android APK: share any video link or pick a local file, slice lightweight audio chunks directly on your phone, translate them with **Whisper `large-v3`** on your own **Google Colab T4 GPU**, and watch smoothly inside an embedded **`libmpv`** player with live-reloading English subtitles.
 
 ---
 
@@ -120,29 +118,15 @@ Inside the cinema-black `libmpv` player:
 
 ## Future Upgrades & Contributor Roadmap
 
-SUBCOLAB is designed as a modular foundation for mobile AI subtitling. Below are the highest-impact upgrades contributors can build next:
+Planned upgrades and areas where contributions are welcome at **[github.com/22-db-22/SUBCOLAB](https://github.com/22-db-22/SUBCOLAB)**:
 
-### 1. Direct DASH (`.mpd`), HLS (`.m3u8`), & Raw Stream Links with Translated Subtitles
+- **Android TV / Google TV Support:** Leanback launcher entry, full D-pad/remote navigation, and living-room subtitle scaling in `libmpv`.
+- **Target Output Languages Beyond English:** Translate captions into any target language (Hindi, Spanish, Arabic, Japanese, etc.) instead of Whisper's English-only `translate` mode.
+- **Direct MPEG-DASH (`.mpd`) & Live Stream Tailing:** `.mpd` XML rewriting inside `LoopbackMediaProxy` plus continuous sliding-window translation for active livestreams.
+- **Dual-Language Stacked Subtitles & Timing Offset:** Render original + translated tracks together in `.ass` and add live `±100ms` subtitle delay controls in the player.
+- **On-Device Offline Mode (`whisper.cpp`):** Optional downloadable quantized models (`tiny`/`base`/`small`) for short clips with zero Colab or internet dependency.
+- **In-App Stream Sniffer & Speaker Diarization:** Optional WebView sniffer to grab embedded `.m3u8`/`.mpd` streams directly, plus `[Speaker 1]` labels for podcasts and debates.
 
-**Why it matters:** Today, `StreamExtractor` sends every URL through `yt-dlp` page scraping first, while the local `LoopbackMediaProxy` already rewrites HLS `.m3u8` playlists. Many third-party web players, international broadcasters, anime/drama hosts, and IPTV feeds expose direct `.mpd` (MPEG-DASH) or `.m3u8` (HLS) manifest URLs—often protected by short-lived signed tokens or `Referer`/`Origin` checks—where `yt-dlp` fails without full webpage context even though `libmpv` and `ffmpeg` can play the manifest natively.
-
-**Proposed Upgrade Architecture:**
-- **Direct Manifest Fast-Path (`yt-dlp` Bypass):** Detect `.mpd`, `.m3u8`, `.mp4`, `.mkv`, `.ts`, and `mime=` stream URLs in `UrlUnwrapper` / `StreamExtractor` and route them straight to `LoopbackMediaProxy` + `libmpv` without invoking `yt-dlp` extraction.
-- **MPEG-DASH (`.mpd`) Manifest Rewriting & Audio-Track Slicing:** Mirror the existing `rewriteM3u8Playlist` helper with an `.mpd` XML rewriter inside `LoopbackMediaProxy` that resolves relative `<BaseURL>` and `<SegmentTemplate>` paths, lets users select a specific foreign-language `<AdaptationSet contentType="audio">`, and feeds only that audio track to `ffmpeg` for 15–60s AAC chunking.
-- **Custom HTTP Header & Browser-Sniffer Extras:** Add optional `Referer`, `Origin`, `User-Agent`, and `Cookie` fields in the Home link sheet (plus Intent extras support so browser stream-sniffer apps can share `.m3u8`/`.mpd` links along with their headers).
-- **Sliding-Window Live Manifest Tailing:** Poll `EXT-X-MEDIA-SEQUENCE` (HLS) and `MPD@type="dynamic"` segments incrementally so active livestreams receive rolling translated subtitles in near real-time.
-
----
-
-### 2. More Community Upgrades to Build On
-
-| Upgrade Track | What to Build | Impact |
-| :--- | :--- | :--- |
-| **Dual-Language Stacked Subtitles** | Combine the original spoken transcript (`.orig.srt`) and English translation into a styled `.ass` track rendered simultaneously in `libmpv` | Ideal for language learners watching Bilibili, NicoNico, or Dailymotion |
-| **Built-In Lightweight Stream Sniffer** | Add an optional in-app WebView tab that intercepts `.m3u8` and `.mpd` network requests on any webpage and offers a one-tap **Translate Stream** button | Eliminates external sniffer apps for embedded web videos |
-| **Speaker Diarization & Custom Glossary** | Integrate Whisper `initial_prompt` (character names, domain terms) and lightweight speaker labeling (`[Speaker 1]`) inside `colab_worker.py` | Major readability boost for multi-host podcasts, debates, and anime |
-| **On-Device Offline Fallback (`whisper.cpp`)** | Bundle or dynamically download quantized `whisper.cpp` (`tiny` / `base` / `small` GGUF) with Vulkan/NNAPI acceleration | Translate short clips and local videos with zero internet or Colab quota |
-| **Subtitle Timing Offset & Sync Library** | Add `±100ms` subtitle delay controls in `MpvPlayerController`, font size/outline presets, and optional WebDAV/Drive sync for saved packs | Polished viewing control and cross-device subtitle backups |
 
 Contributions, forks, and pull requests are welcome at **[github.com/22-db-22/SUBCOLAB](https://github.com/22-db-22/SUBCOLAB)**!
 
