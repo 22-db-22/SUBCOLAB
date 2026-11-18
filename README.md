@@ -36,7 +36,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 
 > [!TIP]
 > You can also paste links wrapped in Google, Instagram, or Facebook redirect URLs (`google.com/goto?url=...`, `l.instagram.com`, etc.)—SUBCOLAB unwraps them automatically.
-
+>  For first time/fresh session the "confirming  t4 gpu session" might take a bit of time--> try to cancel the job and start again 2,3 times. That might fix the allocation, or "run previous" button if its there until "warm t4 gpu reused" signal comes 
 ----
 ## ScreenShots
 <p align="center">
@@ -96,7 +96,6 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 ---
 
 ## Download & Quick Start
-## ** For first time/fresh session the "confirming  t4 gpu session" might take a bit of time--> try to cancel the job and start again 2,3 times. That might fix the allocation, or "run previous" button if its there until "warm t4 gpu reused" signal comes **
 
 1. Download **`SUBCOLAB-v1.0-arm64.apk`** from **[GitHub Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
 2. Tap the `.apk` to install *(allow **Install unknown apps** if prompted)*.
