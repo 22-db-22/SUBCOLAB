@@ -1876,6 +1876,7 @@ class SubcolabCoordinator(
         var subtitlesFinishedOk = canReuseSubtitles
         var savedMp4Result: SavedMediaResult? = null
         var internalVideoFallbackPath: String? = null
+        var resolvedThumbUrl: String? = existingPack?.thumbnailUrl
 
         try {
             coroutineScope {
@@ -1919,7 +1920,7 @@ class SubcolabCoordinator(
                 if (resolvedStream != null) {
                     lastResolvedStreamPair = cleanUrl to resolvedStream
                 }
-                val resolvedThumbUrl = resolvedStream?.thumbnailUrl ?: existingPack?.thumbnailUrl
+                resolvedThumbUrl = resolvedStream?.thumbnailUrl ?: existingPack?.thumbnailUrl
                 scope.launch {
                     cachePackThumbnailAsync(
                         packId = packId,
