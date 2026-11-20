@@ -97,7 +97,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 
 ## Download & Quick Start
 
-1. Download **`SUBCOLAB-v1.0-arm64-v8a-debug.apk`** from **[GitHub Actions](https://github.com/22-db-22/SUBCOLAB/actions)** or **[GitHub Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
+1. Download **`SUBCOLAB-v1.0-arm64-v8a.apk`** from **[GitHub Actions](https://github.com/22-db-22/SUBCOLAB/actions)** or **[GitHub Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
 2. Tap the `.apk` to install *(allow **Install unknown apps** if prompted)*.
 3. Open **SUBCOLAB**, grant **Notifications** *(and **Display over other apps** if you want Watch Now to auto-open over source apps)*.
 4. Go to **Settings → Sign in with Google** to authorize your own Google Colab session *(one-time setup)*.
