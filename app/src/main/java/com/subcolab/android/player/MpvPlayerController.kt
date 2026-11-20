@@ -697,6 +697,55 @@ class MpvPlayerController(private val context: Context) {
         }
     }
 
+    fun prepareForNewVideo() {
+        synchronized(mpvLock) {
+            if (!isCreated || activeController !== this) return
+            AppLogger.i(TAG, "Preparing player for switched queued video")
+            runCatching { MPVLib.command(arrayOf("stop")) }
+            runCatching { MPVLib.command(arrayOf("sub-remove")) }
+            closeActivePfdLocked()
+            loadedVideoSource = null
+            loadedPlaybackTarget = null
+            pendingLoadVideo = null
+            isFileLoaded = false
+            loadRequested = false
+            awaitingStartFile = false
+            hwdecNoRetried = false
+            currentSubLoadedPath = null
+            pendingEnSrtPath = null
+            pendingEnCueCount = 0
+            pendingOrigSrtPath = null
+            pendingOrigCueCount = 0
+            desiredSubMode = "en"
+            chunkList = emptyList()
+            currentChunkIndex = -1
+            totalDurationHintSec = 0.0
+            stitchedVideoSource = null
+            liveAudioSource = null
+            attachedAudioSource = null
+            allChunksDownloaded = false
+            isPlayingStitched = false
+            waitingForNextChunkIndex = null
+            pendingSeekInChunkSec = null
+            eofHandledForCurrentChunk = false
+            lastMpvErrorLog = null
+            _uiState.update {
+                it.copy(
+                    isFileLoaded = false,
+                    isPaused = false,
+                    positionSec = 0.0,
+                    durationSec = 0.0,
+                    hasSubtitleTrack = false,
+                    hasOrigSubtitleTrack = false,
+                    activeSubtitleTrack = "en",
+                    subtitlesEnabled = true,
+                    bufferingMessage = "Opening next video...",
+                    error = null,
+                )
+            }
+        }
+    }
+
     fun setUserSubtitleDelay(delaySec: Float) {
         synchronized(mpvLock) {
             userSubDelaySec = delaySec.toDouble().coerceIn(-15.0, 15.0)

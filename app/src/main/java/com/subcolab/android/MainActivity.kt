@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_PLAYER = "com.subcolab.android.extra.OPEN_PLAYER"
+        const val EXTRA_SWITCH_QUEUE_ID = "com.subcolab.android.extra.SWITCH_QUEUE_ID"
 
         fun createOpenPlayerIntent(context: Context): Intent {
             return Intent(context, MainActivity::class.java).apply {
@@ -88,10 +89,18 @@ class MainActivity : ComponentActivity() {
                 putExtra(EXTRA_OPEN_PLAYER, true)
             }
         }
+
+        fun createSwitchToQueuedIntent(context: Context, queueId: String): Intent {
+            return Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_SWITCH_QUEUE_ID, queueId)
+            }
+        }
     }
 
     private val viewModel: MainViewModel by viewModels()
     private var openPlayerSignal by mutableStateOf(false)
+    private var switchQueueIdSignal by mutableStateOf<String?>(null)
     private var isInPipMode by mutableStateOf(false)
     private var currentRoute by mutableStateOf("home")
 
@@ -144,7 +153,9 @@ class MainActivity : ComponentActivity() {
                         val selectedLocalVideoUri by viewModel.selectedLocalVideoUri.collectAsState()
                         val selectedLocalVideoName by viewModel.selectedLocalVideoName.collectAsState()
                         val jobState by viewModel.jobState.collectAsState()
+                        val playerJobState by viewModel.playerState.collectAsState()
                         val liveSrtRevision by viewModel.liveSrtRevision.collectAsState()
+                        val playerSrtRevision by viewModel.playerSrtRevision.collectAsState()
                         val authState by viewModel.authState.collectAsState()
                         val lastCrashText by viewModel.lastCrashText.collectAsState()
                         val debugLogs by viewModel.debugLogs.collectAsState()
@@ -152,6 +163,20 @@ class MainActivity : ComponentActivity() {
 
                         val hasPlayableMedia = jobState.playableVideoSource != null || jobState.playableChunks.isNotEmpty()
                         var autoOpenedJobKey by remember { mutableStateOf<String?>(null) }
+
+                        // Switch to a queued video when user taps "Watch Now" on its top Android notification
+                        LaunchedEffect(switchQueueIdSignal) {
+                            val queueId = switchQueueIdSignal ?: return@LaunchedEffect
+                            switchQueueIdSignal = null
+                            if (viewModel.switchToQueuedOffer(this@MainActivity, queueId)) {
+                                if (currentRoute != "player" && navController.currentDestination?.route != "player") {
+                                    currentRoute = "player"
+                                    navController.navigate("player") {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            }
+                        }
 
                         // Open player when user taps "Watch Now" on Ready notification
                         LaunchedEffect(openPlayerSignal, hasPlayableMedia) {
@@ -167,10 +192,11 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Auto-open PlayerScreen once initial subtitles arrive in Watch Now (live stream or fallback chunks)
+                        // Auto-open PlayerScreen once initial subtitles arrive in Watch Now (non-queued jobs only!)
                         LaunchedEffect(
                             jobState.phase,
                             jobState.isPlayerReady,
+                            jobState.isActiveJobQueued,
                             jobState.isLiveStreaming,
                             jobState.playableVideoSource,
                             jobState.playableChunks.size,
@@ -188,6 +214,7 @@ class MainActivity : ComponentActivity() {
                             if (!jobState.isPlayerReady || !activePhaseOk) {
                                 autoOpenedJobKey = null
                             } else if (activePhaseOk &&
+                                !jobState.isActiveJobQueued &&
                                 jobState.mode == WorkflowMode.WATCH_NOW &&
                                 hasPlayableMedia &&
                                 jobState.cueCount > 0 &&
@@ -253,14 +280,28 @@ class MainActivity : ComponentActivity() {
                                     onOpenDebugLogs = { showDebugLogsDialog = true },
                                     onCopyAllLogs = viewModel::buildFullLogReport,
                                     onDismissLastCrash = viewModel::clearLastCrash,
+                                    onDismissQuickTips = viewModel::dismissQuickTips,
+                                    onRemoveQueuedJob = viewModel::removeQueuedJob,
+                                    onSwitchToQueuedOffer = { queueId ->
+                                        if (viewModel.switchToQueuedOffer(this@MainActivity, queueId)) {
+                                            if (currentRoute != "player" && navController.currentDestination?.route != "player") {
+                                                currentRoute = "player"
+                                                navController.navigate("player") { launchSingleTop = true }
+                                            }
+                                        }
+                                    },
+                                    onHideQueuedOffer = { queueId ->
+                                        viewModel.hideQueuedOffer(this@MainActivity, queueId)
+                                    },
                                 )
                             }
 
                             composable("player") {
                                 currentRoute = "player"
                                 PlayerScreen(
-                                    jobState = jobState,
-                                    liveSrtRevision = liveSrtRevision,
+                                    jobState = playerJobState,
+                                    liveSrtRevision = playerSrtRevision,
+                                    readyQueuedOffers = jobState.readyQueuedOffers,
                                     subtitleFontSize = settings.subtitleFontSize,
                                     subtitleDelaySec = settings.subtitleDelaySec,
                                     subtitleBorderSize = settings.subtitleBorderSize,
@@ -276,6 +317,12 @@ class MainActivity : ComponentActivity() {
                                         viewModel.setSubtitleBoxEnabled(box)
                                     },
                                     onRetryStream = viewModel::retryPlayback,
+                                    onSwitchToQueuedOffer = { queueId ->
+                                        viewModel.switchToQueuedOffer(this@MainActivity, queueId)
+                                    },
+                                    onHideQueuedOffer = { queueId ->
+                                        viewModel.hideQueuedOffer(this@MainActivity, queueId)
+                                    },
                                     onBack = {
                                         currentRoute = "home"
                                         navController.popBackStack()
@@ -427,7 +474,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
-        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) {
+        val switchQueueId = intent.getStringExtra(EXTRA_SWITCH_QUEUE_ID)
+        if (!switchQueueId.isNullOrBlank()) {
+            switchQueueIdSignal = switchQueueId
+        } else if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) {
             openPlayerSignal = true
         }
     }

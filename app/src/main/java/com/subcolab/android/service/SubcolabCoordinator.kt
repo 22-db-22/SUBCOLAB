@@ -18,10 +18,13 @@ import com.subcolab.android.model.JobPhase
 import com.subcolab.android.model.JobProgressState
 import com.subcolab.android.model.PersistedJobSession
 import com.subcolab.android.model.PreviousJobCache
+import com.subcolab.android.model.QueuedJobItem
+import com.subcolab.android.model.ReadyQueuedOffer
 import com.subcolab.android.model.SavePackStatus
 import com.subcolab.android.model.SavedPack
 import com.subcolab.android.model.SubtitleRetranslateOptions
 import com.subcolab.android.model.VideoChunkInfo
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.util.AppLogger
 import com.subcolab.android.util.MediaStoreSaver
@@ -77,15 +80,32 @@ class SubcolabCoordinator(
     private val _state = MutableStateFlow(JobProgressState())
     val state: StateFlow<JobProgressState> = _state.asStateFlow()
 
+    private val _playerState = MutableStateFlow(JobProgressState())
+    val playerState: StateFlow<JobProgressState> = _playerState.asStateFlow()
+
     private val _liveSrtRevision = MutableStateFlow(0L)
     val liveSrtRevision: StateFlow<Long> = _liveSrtRevision.asStateFlow()
+
+    private val _playerSrtRevision = MutableStateFlow(0L)
+    val playerSrtRevision: StateFlow<Long> = _playerSrtRevision.asStateFlow()
+
+    private val playerMirrorLock = Any()
+    @Volatile
+    private var isPlaybackPinned = false
+    @Volatile
+    private var queuedJobAcceptedByUser = false
 
     private var activeJob: Job? = null
     private val activeJobToken = AtomicLong(0L)
     private var activeLiveStreamProxy: StreamExtractor.LoopbackMediaProxy? = null
+    private var pinnedPlaybackProxy: StreamExtractor.LoopbackMediaProxy? = null
+    private val offerProxies = mutableMapOf<String, StreamExtractor.LoopbackMediaProxy>()
+    private val dismissedOfferQueueIds = mutableSetOf<String>()
+    private val queueLock = Any()
     private val liveProxyLock = Any()
     private var notificationCallback: ((title: String, body: String, ongoing: Boolean) -> Unit)? = null
     private var playerReadyNotificationCallback: ((titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean, useFullScreenIntent: Boolean) -> Unit)? = null
+    private var queuedReadyNotificationCallback: ((queueId: String, titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean) -> Unit)? = null
 
     @Volatile
     private var isPlayerScreenOpen = false
@@ -94,6 +114,34 @@ class SubcolabCoordinator(
     private var promptedReadyForJobToken: Long = -1L
     @Volatile
     private var lastResolvedStreamPair: Pair<String, ResolvedStreamInfo>? = null
+
+    private inline fun mutateState(transform: (JobProgressState) -> JobProgressState) {
+        synchronized(playerMirrorLock) {
+            val next = transform(_state.value)
+            _state.value = next
+            if (!isPlaybackPinned) {
+                _playerState.value = next
+            }
+        }
+    }
+
+    private fun bumpLiveSrtRevision() {
+        synchronized(playerMirrorLock) {
+            _liveSrtRevision.value = _liveSrtRevision.value + 1L
+            if (!isPlaybackPinned) {
+                _playerSrtRevision.value = _playerSrtRevision.value + 1L
+            }
+        }
+    }
+
+    private fun resetLiveSrtRevision() {
+        synchronized(playerMirrorLock) {
+            _liveSrtRevision.value = 0L
+            if (!isPlaybackPinned) {
+                _playerSrtRevision.value = 0L
+            }
+        }
+    }
 
     fun hasActiveJob(): Boolean {
         val phase = _state.value.phase
@@ -107,8 +155,10 @@ class SubcolabCoordinator(
             )
     }
 
+    fun hasQueuedJobs(): Boolean = _state.value.queuedJobs.isNotEmpty()
+
     fun onPrewarmedSession(session: ColabRuntimeSession) {
-        _state.update {
+        mutateState {
             it.copy(
                 isGpuWarm = true,
                 gpuRuntimeLabel = "${session.accelerator} • ${session.endpoint.take(10)}",
@@ -117,7 +167,7 @@ class SubcolabCoordinator(
     }
 
     fun resetGpuWarmState() {
-        _state.update {
+        mutateState {
             it.copy(
                 isGpuWarm = false,
                 gpuRuntimeLabel = null,
@@ -138,6 +188,110 @@ class SubcolabCoordinator(
 
     private fun closeLiveStreamProxy() = replaceLiveStreamProxy(null)
 
+    private fun closePinnedPlaybackProxy() {
+        val old = synchronized(liveProxyLock) {
+            val prev = pinnedPlaybackProxy
+            pinnedPlaybackProxy = null
+            prev
+        }
+        if (old != null) {
+            runCatching { old.close() }
+        }
+    }
+
+    private fun closeAllOfferProxies() {
+        val toClose = synchronized(liveProxyLock) {
+            val copy = offerProxies.values.toList()
+            offerProxies.clear()
+            copy
+        }
+        toClose.forEach { runCatching { it.close() } }
+    }
+
+    private fun pinCurrentPlaybackIfAvailable() {
+        synchronized(playerMirrorLock) {
+            val currentPlayer = _playerState.value
+            val hasMedia = !currentPlayer.playableVideoSource.isNullOrBlank() || currentPlayer.playableChunks.isNotEmpty()
+            if (!hasMedia) {
+                return
+            }
+            if (!isPlaybackPinned) {
+                if (liveSrtFile.exists() && liveSrtFile.length() > 0L) {
+                    runCatching { liveSrtFile.copyTo(pinnedEnSrtFile, overwrite = true) }
+                } else if (pinnedEnSrtFile.exists()) {
+                    runCatching { pinnedEnSrtFile.delete() }
+                }
+                if (liveOrigSrtFile.exists() && liveOrigSrtFile.length() > 0L) {
+                    runCatching { liveOrigSrtFile.copyTo(pinnedOrigSrtFile, overwrite = true) }
+                } else if (pinnedOrigSrtFile.exists()) {
+                    runCatching { pinnedOrigSrtFile.delete() }
+                }
+                synchronized(liveProxyLock) {
+                    val active = activeLiveStreamProxy
+                    if (active != null) {
+                        val prevPinned = pinnedPlaybackProxy
+                        pinnedPlaybackProxy = active
+                        activeLiveStreamProxy = null
+                        if (prevPinned != null && prevPinned !== active) {
+                            runCatching { prevPinned.close() }
+                        }
+                    }
+                }
+                _playerState.value = currentPlayer.copy(
+                    liveSrtPath = pinnedEnSrtFile.takeIf { it.exists() && it.length() > 0L }?.absolutePath
+                        ?: currentPlayer.liveSrtPath,
+                    liveOrigSrtPath = pinnedOrigSrtFile.takeIf { it.exists() && it.length() > 0L }?.absolutePath
+                        ?: currentPlayer.liveOrigSrtPath,
+                )
+                isPlaybackPinned = true
+                _playerSrtRevision.value = _playerSrtRevision.value + 1L
+                AppLogger.i(TAG, "Pinned ongoing playback for '${currentPlayer.titleSlug}' while next queued job runs in background")
+            }
+        }
+    }
+
+    private fun offerEnSrtFile(queueId: String): File =
+        File(appContext.filesDir, "offer_${queueId}_en.srt")
+
+    private fun offerOrigSrtFile(queueId: String): File =
+        File(appContext.filesDir, "offer_${queueId}_orig.srt")
+
+    private fun snapshotFinishedQueuedJobForOffer(queueId: String?) {
+        if (queueId.isNullOrBlank()) return
+        val hasOffer = _state.value.readyQueuedOffers.any { it.queueId == queueId }
+        if (!hasOffer) return
+
+        val snapEn = offerEnSrtFile(queueId)
+        val snapOrig = offerOrigSrtFile(queueId)
+        if (liveSrtFile.exists() && liveSrtFile.length() > 0L) {
+            runCatching { liveSrtFile.copyTo(snapEn, overwrite = true) }
+        }
+        if (liveOrigSrtFile.exists() && liveOrigSrtFile.length() > 0L) {
+            runCatching { liveOrigSrtFile.copyTo(snapOrig, overwrite = true) }
+        }
+        synchronized(liveProxyLock) {
+            val active = activeLiveStreamProxy
+            if (active != null) {
+                offerProxies.put(queueId, active)?.let { old ->
+                    if (old !== active) runCatching { old.close() }
+                }
+                activeLiveStreamProxy = null
+            }
+        }
+        mutateState { cur ->
+            cur.copy(
+                readyQueuedOffers = cur.readyQueuedOffers.map { offer ->
+                    if (offer.queueId == queueId) {
+                        offer.copy(
+                            enSrtPath = snapEn.takeIf { it.exists() && it.length() > 0L }?.absolutePath ?: offer.enSrtPath,
+                            origSrtPath = snapOrig.takeIf { it.exists() && it.length() > 0L }?.absolutePath ?: offer.origSrtPath,
+                        )
+                    } else offer
+                },
+            )
+        }
+    }
+
     fun setPlayerScreenOpen(open: Boolean) {
         isPlayerScreenOpen = open
         if (!open) {
@@ -149,7 +303,7 @@ class SubcolabCoordinator(
             toDelete.forEach { dir ->
                 runCatching { dir.deleteRecursively() }
             }
-            _state.update { cur ->
+            mutateState { cur ->
                 if (cur.playableVideoSource != null && cur.playableChunks.isNotEmpty()) {
                     cur.copy(playableChunks = emptyList(), isChunkDownloadComplete = false)
                 } else cur
@@ -160,7 +314,7 @@ class SubcolabCoordinator(
     private fun scheduleChunksDirCleanup(dir: File) {
         if (!isPlayerScreenOpen) {
             runCatching { dir.deleteRecursively() }
-            _state.update { cur ->
+            mutateState { cur ->
                 if (cur.playableChunks.isNotEmpty()) {
                     cur.copy(playableChunks = emptyList(), isChunkDownloadComplete = false)
                 } else cur
@@ -187,16 +341,58 @@ class SubcolabCoordinator(
         return canDrawOverlays
     }
 
-    private fun maybeNotifyPlayerReady(jobToken: Long) {
+    private fun maybeNotifyPlayerReady(
+        jobToken: Long,
+        isQueuedJob: Boolean = false,
+        queueId: String? = null,
+    ) {
         if (!isJobCurrent(jobToken)) return
         val cur = _state.value
         if (cur.mode != WorkflowMode.WATCH_NOW) return
         val hasMedia = (cur.isLiveStreaming && !cur.playableVideoSource.isNullOrBlank()) || cur.playableChunks.isNotEmpty()
         if (!hasMedia || cur.cueCount < 1) return
 
+        // Queued jobs must NEVER interrupt/auto-open playback: instead emit/update an Android top notification
+        // and in-app ReadyQueuedOffer banner with Watch Now + Hide buttons (unless the user already accepted this job).
+        val treatAsQueuedOffer = isQueuedJob && queueId != null && !queuedJobAcceptedByUser
+        if (treatAsQueuedOffer) {
+            if (queueId in dismissedOfferQueueIds) return
+            val slug = cur.titleSlug.ifBlank { "SUBCOLAB_Video" }
+            val videoSrc = cur.playableVideoSource ?: cur.playableChunks.firstOrNull()?.path ?: return
+            val offer = ReadyQueuedOffer(
+                queueId = queueId!!,
+                packId = cur.activePackId.orEmpty(),
+                titleSlug = slug,
+                cueCount = cur.cueCount,
+                origCueCount = cur.origCueCount,
+                detectedOrigLang = cur.detectedOrigLang,
+                isLiveStreaming = cur.isLiveStreaming,
+                isComplete = false,
+                playableVideoSource = videoSrc,
+                playableAudioSource = cur.playableAudioSource,
+                enSrtPath = cur.liveSrtPath,
+                origSrtPath = cur.liveOrigSrtPath,
+            )
+            mutateState { st ->
+                val updated = st.readyQueuedOffers.filterNot { it.queueId == queueId } + offer
+                st.copy(readyQueuedOffers = updated)
+            }
+            if (promptedReadyForJobToken != jobToken) {
+                promptedReadyForJobToken = jobToken
+                queuedReadyNotificationCallback?.invoke(
+                    queueId,
+                    slug,
+                    cur.cueCount,
+                    false,
+                    cur.isLiveStreaming,
+                )
+            }
+            return
+        }
+
         if (!cur.isPlayerReady) {
             val showInApp = SubcolabApp.isAppInForeground && !isPlayerScreenOpen
-            _state.update {
+            mutateState {
                 it.copy(
                     isPlayerReady = true,
                     isReadyPromptVisible = it.isReadyPromptVisible || showInApp,
@@ -224,6 +420,12 @@ class SubcolabCoordinator(
 
     val liveOrigSrtFile: File
         get() = File(appContext.filesDir, "live_orig.srt")
+
+    private val pinnedEnSrtFile: File
+        get() = File(appContext.filesDir, "pinned_playback_en.srt")
+
+    private val pinnedOrigSrtFile: File
+        get() = File(appContext.filesDir, "pinned_playback_orig.srt")
 
     private fun packDir(packId: String): File =
         File(File(appContext.filesDir, "packs"), packId).apply { mkdirs() }
@@ -263,7 +465,7 @@ class SubcolabCoordinator(
 
         val cleanedPacks = saved.savedPacks.filter { it.hasVideo || it.hasSubtitles }
         val hasRestorableJob = saved.currentUrl.isNotBlank() || saved.previousJob != null
-        _state.update {
+        mutateState {
             it.copy(
                 phase = when {
                     !hasRestorableJob -> JobPhase.IDLE
@@ -295,7 +497,10 @@ class SubcolabCoordinator(
             )
         }
         if (loadedCues > 0 || loadedOrigCues > 0) {
-            _liveSrtRevision.value = 1L
+            synchronized(playerMirrorLock) {
+                _liveSrtRevision.value = 1L
+                _playerSrtRevision.value = 1L
+            }
         }
         AppLogger.i(
             TAG,
@@ -351,14 +556,17 @@ class SubcolabCoordinator(
     fun attachServiceCallbacks(
         onProgressNotify: (title: String, body: String, ongoing: Boolean) -> Unit,
         onPlayerReadyNotify: (titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean, useFullScreenIntent: Boolean) -> Unit,
+        onQueuedReadyNotify: (queueId: String, titleSlug: String, cueCount: Int, isComplete: Boolean, isLiveStream: Boolean) -> Unit = { _, _, _, _, _ -> },
     ) {
         notificationCallback = onProgressNotify
         playerReadyNotificationCallback = onPlayerReadyNotify
+        queuedReadyNotificationCallback = onQueuedReadyNotify
     }
 
     fun detachServiceCallbacks() {
         notificationCallback = null
         playerReadyNotificationCallback = null
+        queuedReadyNotificationCallback = null
     }
 
     fun startUrlJob(
@@ -368,17 +576,19 @@ class SubcolabCoordinator(
         fromExternalShare: Boolean = false,
         reusePreviousCache: Boolean = false,
         resumeFromSec: Double = 0.0,
-    ) {
+        subtitleOptions: SubtitleRetranslateOptions? = null,
+        forceReplace: Boolean = false,
+    ): Int {
         val cleanUrl = UrlUnwrapper.extractAndUnwrap(rawUrl)
         if (!UrlUnwrapper.isValidVideoUrl(cleanUrl)) {
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.ERROR,
                     statusMessage = "Invalid video link",
                     errorMessage = "Please enter or share a valid video URL.",
                 )
             }
-            return
+            return -1
         }
 
         val effectiveMode = if (workflowMode == WorkflowMode.LOCAL_VIDEO_SUBTITLES) {
@@ -387,24 +597,251 @@ class SubcolabCoordinator(
             workflowMode
         }
 
-        AppLogger.i(TAG, "Starting URL job: mode=$effectiveMode url=$cleanUrl lang=$sourceLang externalShare=$fromExternalShare reuse=$reusePreviousCache resumeSec=$resumeFromSec")
+        val settings = settingsRepo.settings.value
+        val normalizedLang = sourceLang.ifBlank { "auto" }
+        val resolvedOptions = (subtitleOptions ?: SubtitleRetranslateOptions(
+            sourceLang = normalizedLang,
+            cleanAudio = settings.cleanAudio,
+            vocalBoost = false,
+            includeOriginal = false,
+            modelId = WhisperModels.normalize(settings.modelId),
+            beamSize = 5,
+        )).let {
+            it.copy(
+                sourceLang = normalizedLang,
+                modelId = WhisperModels.normalize(it.modelId),
+                beamSize = it.beamSize.coerceIn(1, 10),
+            )
+        }
+
+        if (!forceReplace && hasActiveJob()) {
+            val queueId = UUID.randomUUID().toString().take(10)
+            val fallbackSlug = Uri.parse(cleanUrl).lastPathSegment
+                ?.takeIf { it.isNotBlank() && it != "watch" }
+                ?.let { LocalAudioExtractor.buildTitleSlug(it) }
+                ?: cleanUrl.removePrefix("https://").removePrefix("http://").take(36)
+            val queuedItem = QueuedJobItem(
+                queueId = queueId,
+                rawUrl = rawUrl,
+                normalizedUrl = cleanUrl,
+                titleSlug = fallbackSlug,
+                sourceLang = normalizedLang,
+                mode = effectiveMode,
+                fromExternalShare = fromExternalShare,
+                subtitleOptions = resolvedOptions,
+            )
+            var queuePosition = 1
+            synchronized(queueLock) {
+                mutateState { st ->
+                    val nextList = st.queuedJobs + queuedItem
+                    queuePosition = nextList.size
+                    st.copy(queuedJobs = nextList)
+                }
+            }
+            AppLogger.i(TAG, "Queued URL job #$queuePosition ($queueId): mode=$effectiveMode url=$cleanUrl model=${resolvedOptions.modelId}")
+            scope.launch {
+                val hint = runCatching {
+                    streamExtractor.fetchTitleHint(cleanUrl, settingsRepo.cookiesFile)
+                }.getOrNull()
+                if (!hint.isNullOrBlank()) {
+                    val cleanSlug = LocalAudioExtractor.buildTitleSlug(
+                        hint.replace(Regex("\\s*-\\s*(YouTube|Dailymotion)$", RegexOption.IGNORE_CASE), ""),
+                    )
+                    if (cleanSlug.length >= 3) {
+                        synchronized(queueLock) {
+                            mutateState { st ->
+                                st.copy(
+                                    queuedJobs = st.queuedJobs.map { q ->
+                                        if (q.queueId == queueId) q.copy(titleSlug = cleanSlug) else q
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            return queuePosition
+        }
+
+        AppLogger.i(TAG, "Starting URL job: mode=$effectiveMode url=$cleanUrl lang=$normalizedLang model=${resolvedOptions.modelId} externalShare=$fromExternalShare reuse=$reusePreviousCache resumeSec=$resumeFromSec")
         startForegroundServiceSafe()
+
+        synchronized(playerMirrorLock) {
+            isPlaybackPinned = false
+        }
+        closePinnedPlaybackProxy()
 
         val jobToken = activeJobToken.incrementAndGet()
         activeJob?.cancel()
         closeLiveStreamProxy()
+        mutateState { it.copy(activeJobQueueId = null, isActiveJobQueued = false) }
         activeJob = scope.launch {
             runUrlPipeline(
                 jobToken = jobToken,
                 cleanUrl = cleanUrl,
                 rawUrl = rawUrl,
-                sourceLang = sourceLang.ifBlank { "auto" },
+                sourceLang = normalizedLang,
                 workflowMode = effectiveMode,
                 fromExternalShare = fromExternalShare,
                 reusePreviousCache = reusePreviousCache,
                 resumeFromSec = resumeFromSec,
+                subtitleOptions = resolvedOptions,
+                isQueuedJob = false,
+                queueId = null,
             )
         }
+        return 0
+    }
+
+    private fun startQueuedUrlJobInternal(item: QueuedJobItem) {
+        AppLogger.i(TAG, "Starting next queued URL job (${item.queueId}): mode=${item.mode} url=${item.normalizedUrl}")
+        queuedJobAcceptedByUser = false
+        pinCurrentPlaybackIfAvailable()
+        startForegroundServiceSafe()
+
+        val jobToken = activeJobToken.incrementAndGet()
+        activeJob?.cancel()
+        closeLiveStreamProxy()
+        mutateState {
+            it.copy(
+                activeJobQueueId = item.queueId,
+                isActiveJobQueued = true,
+            )
+        }
+        activeJob = scope.launch {
+            runUrlPipeline(
+                jobToken = jobToken,
+                cleanUrl = item.normalizedUrl,
+                rawUrl = item.rawUrl,
+                sourceLang = item.sourceLang,
+                workflowMode = item.mode,
+                fromExternalShare = item.fromExternalShare,
+                reusePreviousCache = false,
+                resumeFromSec = 0.0,
+                subtitleOptions = item.subtitleOptions,
+                isQueuedJob = true,
+                queueId = item.queueId,
+            )
+        }
+    }
+
+    private fun startNextQueuedJobIfAny(finishedJobToken: Long, finishedQueueId: String?) {
+        if (!isJobCurrent(finishedJobToken)) return
+        snapshotFinishedQueuedJobForOffer(finishedQueueId)
+        val nextItem: QueuedJobItem? = synchronized(queueLock) {
+            val current = _state.value.queuedJobs
+            if (current.isEmpty()) {
+                null
+            } else {
+                val head = current.first()
+                mutateState { st -> st.copy(queuedJobs = st.queuedJobs.drop(1)) }
+                head
+            }
+        }
+        if (nextItem != null) {
+            startQueuedUrlJobInternal(nextItem)
+        } else {
+            mutateState { it.copy(activeJobQueueId = null, isActiveJobQueued = false) }
+        }
+    }
+
+    fun removeQueuedJob(queueId: String) {
+        synchronized(queueLock) {
+            mutateState { st ->
+                st.copy(queuedJobs = st.queuedJobs.filterNot { it.queueId == queueId })
+            }
+        }
+    }
+
+    fun hideQueuedReadyOffer(queueId: String) {
+        dismissedOfferQueueIds.add(queueId)
+        mutateState { st ->
+            st.copy(readyQueuedOffers = st.readyQueuedOffers.filterNot { it.queueId == queueId })
+        }
+        if (_state.value.activeJobQueueId != queueId) {
+            synchronized(liveProxyLock) {
+                offerProxies.remove(queueId)?.let { runCatching { it.close() } }
+            }
+        }
+    }
+
+    fun switchToQueuedOffer(queueId: String): Boolean {
+        val st = _state.value
+        val offer = st.readyQueuedOffers.firstOrNull { it.queueId == queueId }
+        val isActiveStream = st.activeJobQueueId == queueId
+
+        dismissedOfferQueueIds.add(queueId)
+        mutateState { cur ->
+            cur.copy(readyQueuedOffers = cur.readyQueuedOffers.filterNot { it.queueId == queueId })
+        }
+
+        if (isActiveStream && hasActiveJob()) {
+            // Active job is still streaming/translating: unpin old playback and mirror active job live!
+            queuedJobAcceptedByUser = true
+            closePinnedPlaybackProxy()
+            synchronized(playerMirrorLock) {
+                isPlaybackPinned = false
+                _playerState.value = _state.value.copy(
+                    isPlayerReady = true,
+                    isReadyPromptVisible = false,
+                )
+                _playerSrtRevision.value = _liveSrtRevision.value + 1L
+            }
+            AppLogger.i(TAG, "Switched player to live active queued job $queueId (${_state.value.titleSlug})")
+            return true
+        }
+
+        if (offer == null) return false
+
+        val offerEnFile = offer.enSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
+        val offerOrigFile = offer.origSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
+        val savedPack = st.savedPacks.firstOrNull { it.effectiveId == offer.packId }
+        val resolvedEn = offerEnFile ?: savedPack?.internalEnSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
+        val resolvedOrig = offerOrigFile ?: savedPack?.internalOrigSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
+
+        if (resolvedEn != null) {
+            runCatching { resolvedEn.copyTo(pinnedEnSrtFile, overwrite = true) }
+        } else if (pinnedEnSrtFile.exists()) {
+            runCatching { pinnedEnSrtFile.delete() }
+        }
+        if (resolvedOrig != null) {
+            runCatching { resolvedOrig.copyTo(pinnedOrigSrtFile, overwrite = true) }
+        } else if (pinnedOrigSrtFile.exists()) {
+            runCatching { pinnedOrigSrtFile.delete() }
+        }
+
+        synchronized(liveProxyLock) {
+            val prevPinned = pinnedPlaybackProxy
+            val newProxy = offerProxies.remove(queueId)
+            pinnedPlaybackProxy = newProxy
+            if (prevPinned != null && prevPinned !== newProxy) {
+                runCatching { prevPinned.close() }
+            }
+        }
+
+        synchronized(playerMirrorLock) {
+            isPlaybackPinned = true
+            _playerState.value = JobProgressState(
+                phase = JobPhase.COMPLETED,
+                titleSlug = offer.titleSlug,
+                detectedOrigLang = offer.detectedOrigLang,
+                mode = WorkflowMode.WATCH_NOW,
+                cueCount = offer.cueCount,
+                origCueCount = offer.origCueCount,
+                isPlayerReady = true,
+                isReadyPromptVisible = false,
+                liveSrtPath = pinnedEnSrtFile.takeIf { it.exists() && it.length() > 0L }?.absolutePath,
+                liveOrigSrtPath = pinnedOrigSrtFile.takeIf { it.exists() && it.length() > 0L }?.absolutePath,
+                playableVideoSource = offer.playableVideoSource,
+                playableAudioSource = offer.playableAudioSource,
+                isLiveStreaming = offer.isLiveStreaming,
+                activePackId = offer.packId.ifBlank { null },
+                currentUrl = savedPack?.sourceUrl ?: offer.playableVideoSource,
+            )
+            _playerSrtRevision.value = _playerSrtRevision.value + 1L
+        }
+        AppLogger.i(TAG, "Switched player to completed queued offer $queueId (${offer.titleSlug})")
+        return true
     }
 
     fun startLocalVideoJob(
@@ -413,7 +850,7 @@ class SubcolabCoordinator(
     ) {
         val uri = runCatching { Uri.parse(videoUriString) }.getOrNull()
         if (uri == null || videoUriString.isBlank()) {
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.ERROR,
                     statusMessage = "No video selected",
@@ -425,6 +862,9 @@ class SubcolabCoordinator(
 
         AppLogger.i(TAG, "Starting local device video subtitle job: uri=$videoUriString lang=$sourceLang")
         startForegroundServiceSafe()
+
+        synchronized(playerMirrorLock) { isPlaybackPinned = false }
+        closePinnedPlaybackProxy()
 
         val jobToken = activeJobToken.incrementAndGet()
         activeJob?.cancel()
@@ -444,7 +884,7 @@ class SubcolabCoordinator(
     ) {
         val pack = _state.value.savedPacks.firstOrNull { it.effectiveId == packId } ?: return
         if (pack.isLocalVideo || !UrlUnwrapper.isValidVideoUrl(pack.sourceUrl)) {
-            _state.update {
+            mutateState {
                 it.copy(
                     statusMessage = "Local device video cannot be re-downloaded from URL.",
                 )
@@ -488,7 +928,7 @@ class SubcolabCoordinator(
             ?: if (pack.isLocalVideo) pack.sourceUrl.takeIf { isVideoSourcePlayable(it) } else null
 
         if (videoSrc == null) {
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.ERROR,
                     statusMessage = "Video file missing from storage",
@@ -498,10 +938,53 @@ class SubcolabCoordinator(
             return false
         }
 
-        subtitleManager.reset()
         val enFile = pack.internalEnSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
         val origFile = pack.internalOrigSrtPath?.let { File(it) }?.takeIf { it.exists() && it.length() > 0L }
 
+        if (hasActiveJob()) {
+            // Keep running background job untouched; pin saved pack playback into _playerState
+            if (enFile != null) {
+                enFile.copyTo(pinnedEnSrtFile, overwrite = true)
+            } else if (pinnedEnSrtFile.exists()) {
+                pinnedEnSrtFile.delete()
+            }
+            if (origFile != null) {
+                origFile.copyTo(pinnedOrigSrtFile, overwrite = true)
+            } else if (pinnedOrigSrtFile.exists()) {
+                pinnedOrigSrtFile.delete()
+            }
+            closePinnedPlaybackProxy()
+            synchronized(playerMirrorLock) {
+                isPlaybackPinned = true
+                _playerState.value = _state.value.copy(
+                    titleSlug = pack.titleSlug,
+                    detectedOrigLang = pack.detectedLang,
+                    playableVideoSource = videoSrc,
+                    playableAudioSource = null,
+                    isLiveStreaming = false,
+                    playableChunks = emptyList(),
+                    isChunkDownloadComplete = false,
+                    totalDurationSec = 0.0,
+                    isStitching = false,
+                    chunkDownloadStatus = null,
+                    liveSrtPath = if (enFile != null) pinnedEnSrtFile.absolutePath else null,
+                    liveOrigSrtPath = if (origFile != null) pinnedOrigSrtFile.absolutePath else null,
+                    cueCount = pack.cueCount,
+                    origCueCount = pack.origCueCount,
+                    activePackId = pack.effectiveId,
+                    currentUrl = pack.sourceUrl,
+                    isPlayerReady = true,
+                    isReadyPromptVisible = false,
+                )
+                _playerSrtRevision.value = _playerSrtRevision.value + 1L
+            }
+            return true
+        }
+
+        synchronized(playerMirrorLock) { isPlaybackPinned = false }
+        closePinnedPlaybackProxy()
+
+        subtitleManager.reset()
         val enCount = if (enFile != null) {
             enFile.copyTo(liveSrtFile, overwrite = true)
             subtitleManager.loadFromSrtFile(liveSrtFile, intoOriginal = false)
@@ -519,7 +1002,7 @@ class SubcolabCoordinator(
         }
 
         closeLiveStreamProxy()
-        _state.update {
+        mutateState {
             it.copy(
                 titleSlug = pack.titleSlug,
                 detectedOrigLang = pack.detectedLang,
@@ -539,7 +1022,7 @@ class SubcolabCoordinator(
                 isReadyPromptVisible = false,
             )
         }
-        _liveSrtRevision.value = _liveSrtRevision.value + 1L
+        bumpLiveSrtRevision()
         persistSession(wasCompletedOverride = _state.value.phase == JobPhase.COMPLETED)
         return true
     }
@@ -562,7 +1045,7 @@ class SubcolabCoordinator(
             runCatching { packDir(packId).deleteRecursively() }
         }
 
-        _state.update { current ->
+        mutateState { current ->
             val removedPlayable = current.playableVideoSource != null && (
                 current.playableVideoSource == pack.mp4UriString ||
                     current.playableVideoSource == pack.internalVideoPath
@@ -595,6 +1078,7 @@ class SubcolabCoordinator(
                 fromExternalShare = false,
                 reusePreviousCache = true,
                 resumeFromSec = 0.0,
+                forceReplace = true,
             )
         }
     }
@@ -615,11 +1099,12 @@ class SubcolabCoordinator(
             fromExternalShare = false,
             reusePreviousCache = false,
             resumeFromSec = resumeSec,
+            forceReplace = true,
         )
     }
 
     suspend fun retryPlayerStream(): Pair<String, String?>? {
-        val cur = _state.value
+        val cur = if (isPlaybackPinned) _playerState.value else _state.value
         val existingSrc = cur.playableVideoSource
         if (!existingSrc.isNullOrBlank() && !existingSrc.startsWith("http")) {
             return existingSrc to cur.playableAudioSource
@@ -640,23 +1125,39 @@ class SubcolabCoordinator(
         } ?: return null
 
         val freshProxy = streamExtractor.createLoopbackProxy(resolved.httpHeaders)
-        replaceLiveStreamProxy(freshProxy)
         val newVideoUrl = freshProxy.proxiedUrl(resolved.videoUrl)
         val newAudioUrl = resolved.audioUrl?.takeIf { it.isNotBlank() }?.let { freshProxy.proxiedUrl(it) }
-        _state.update {
-            it.copy(
-                playableVideoSource = newVideoUrl,
-                playableAudioSource = newAudioUrl,
-                isLiveStreaming = true,
-                isPlayerReady = true,
-            )
+        if (isPlaybackPinned) {
+            synchronized(liveProxyLock) {
+                val prev = pinnedPlaybackProxy
+                pinnedPlaybackProxy = freshProxy
+                if (prev != null && prev !== freshProxy) runCatching { prev.close() }
+            }
+            _playerState.update {
+                it.copy(
+                    playableVideoSource = newVideoUrl,
+                    playableAudioSource = newAudioUrl,
+                    isLiveStreaming = true,
+                    isPlayerReady = true,
+                )
+            }
+        } else {
+            replaceLiveStreamProxy(freshProxy)
+            mutateState {
+                it.copy(
+                    playableVideoSource = newVideoUrl,
+                    playableAudioSource = newAudioUrl,
+                    isLiveStreaming = true,
+                    isPlayerReady = true,
+                )
+            }
         }
         AppLogger.i(TAG, "Recreated live playback proxy (port=${freshProxy.port}) for retry")
         return newVideoUrl to newAudioUrl
     }
 
     fun cancelCurrentJob() {
-        activeJobToken.incrementAndGet()
+        val cancelledToken = activeJobToken.incrementAndGet()
         streamExtractor.cancelProcess("resolve_stream")
         streamExtractor.cancelProcess("relay_audio")
         streamExtractor.cancelProcess("save_mp4")
@@ -664,7 +1165,8 @@ class SubcolabCoordinator(
         activeJob = null
         closeLiveStreamProxy()
 
-        _state.update {
+        val hasNextQueued = _state.value.queuedJobs.isNotEmpty()
+        mutateState {
             val resumeSec = if (it.previousJob?.subtitlesCompleted == true) {
                 0.0
             } else {
@@ -681,6 +1183,8 @@ class SubcolabCoordinator(
                 detailMessage = "Paste a new link, resume, or pick a saved video.",
                 translationProgressText = null,
                 activePackId = null,
+                activeJobQueueId = null,
+                isActiveJobQueued = false,
                 playableVideoSource = cleanedVideo,
                 playableAudioSource = null,
                 isLiveStreaming = false,
@@ -695,11 +1199,13 @@ class SubcolabCoordinator(
             )
         }
         persistSession(wasCompletedOverride = _state.value.previousJob?.subtitlesCompleted == true)
-        notificationCallback?.invoke(
-            "SUBCOLAB — T4 Warm",
-            "Job stopped. Colab T4 GPU is ready for your next video.",
-            false,
-        )
+        if (!hasNextQueued) {
+            notificationCallback?.invoke(
+                "SUBCOLAB — T4 Warm",
+                "Job stopped. Colab T4 GPU is ready for your next video.",
+                false,
+            )
+        }
 
         val s = settingsRepo.settings.value
         scope.launch {
@@ -708,6 +1214,9 @@ class SubcolabCoordinator(
                 customTunnelUrl = s.customTunnelUrl,
                 customTunnelToken = s.customTunnelToken,
             )
+            if (hasNextQueued) {
+                startNextQueuedJobIfAny(cancelledToken, null)
+            }
         }
     }
 
@@ -719,8 +1228,12 @@ class SubcolabCoordinator(
         activeJob?.cancel()
         activeJob = null
         closeLiveStreamProxy()
+        closePinnedPlaybackProxy()
+        closeAllOfferProxies()
+        dismissedOfferQueueIds.clear()
+        synchronized(playerMirrorLock) { isPlaybackPinned = false }
 
-        _state.update {
+        mutateState {
             val resumeSec = if (it.previousJob?.subtitlesCompleted == true) {
                 0.0
             } else {
@@ -733,6 +1246,10 @@ class SubcolabCoordinator(
                 detailMessage = "",
                 translationProgressText = null,
                 activePackId = null,
+                activeJobQueueId = null,
+                isActiveJobQueued = false,
+                queuedJobs = emptyList(),
+                readyQueuedOffers = emptyList(),
                 playableVideoSource = cleanedVideo,
                 playableAudioSource = null,
                 isLiveStreaming = false,
@@ -750,6 +1267,7 @@ class SubcolabCoordinator(
         }
         persistSession(wasCompletedOverride = _state.value.previousJob?.subtitlesCompleted == true)
         SubcolabForegroundService.cancelReadyNotification(appContext)
+        SubcolabForegroundService.cancelAllQueuedNotifications(appContext)
         appContext.stopService(Intent(appContext, SubcolabForegroundService::class.java))
 
         val s = settingsRepo.settings.value
@@ -764,7 +1282,7 @@ class SubcolabCoordinator(
     }
 
     fun dismissReadyPrompt() {
-        _state.update { it.copy(isReadyPromptVisible = false) }
+        mutateState { it.copy(isReadyPromptVisible = false) }
     }
 
     private fun startForegroundServiceSafe() {
@@ -788,7 +1306,7 @@ class SubcolabCoordinator(
     }
 
     private fun upsertSavedPack(updatedPack: SavedPack) {
-        _state.update { current ->
+        mutateState { current ->
             val filtered = current.savedPacks.filterNot {
                 it.effectiveId == updatedPack.effectiveId ||
                     (!updatedPack.isLocalVideo && it.sourceUrl == updatedPack.sourceUrl && it.effectiveFolder == updatedPack.effectiveFolder)
@@ -867,7 +1385,7 @@ class SubcolabCoordinator(
             if (liveOrigSrtFile.exists()) liveOrigSrtFile.delete()
         }
 
-        _liveSrtRevision.value = _liveSrtRevision.value + 1L
+        bumpLiveSrtRevision()
 
         return SavedSubtitleBundle(
             enCueCount = subtitleManager.cueCount(),
@@ -914,7 +1432,7 @@ class SubcolabCoordinator(
             is SubtitleStrategy.UseWhisperGpu -> return false
             is SubtitleStrategy.UseDirectEnglish -> {
                 val track = strategy.track
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = JobPhase.TRANSLATING,
                         statusMessage = "Smart Subtitles: Loading manual English captions (${track.lang})...",
@@ -932,8 +1450,8 @@ class SubcolabCoordinator(
                 subtitleManager.loadExternalCues(cues, intoOriginal = false)
                 subtitleManager.setMetadata(detectedOrigLang = "en")
                 subtitleManager.writeLiveSrt(liveSrtFile)
-                _liveSrtRevision.value = _liveSrtRevision.value + 1L
-                _state.update {
+                bumpLiveSrtRevision()
+                mutateState {
                     it.copy(
                         cueCount = cues.size,
                         detectedOrigLang = "en",
@@ -948,7 +1466,7 @@ class SubcolabCoordinator(
             is SubtitleStrategy.TranslateManualSubtitles -> {
                 val track = strategy.track
                 val srcCode = strategy.sourceLang
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = JobPhase.TRANSLATING,
                         statusMessage = "Smart Subtitles: Translating creator $srcCode captions -> EN...",
@@ -974,8 +1492,8 @@ class SubcolabCoordinator(
                 subtitleManager.setMetadata(detectedOrigLang = srcCode)
                 subtitleManager.writeLiveSrt(liveSrtFile)
                 subtitleManager.writeOrigSrt(liveOrigSrtFile)
-                _liveSrtRevision.value = _liveSrtRevision.value + 1L
-                _state.update {
+                bumpLiveSrtRevision()
+                mutateState {
                     it.copy(
                         cueCount = translatedCues.size,
                         origCueCount = origCues.size,
@@ -1001,6 +1519,9 @@ class SubcolabCoordinator(
         fromExternalShare: Boolean,
         reusePreviousCache: Boolean,
         resumeFromSec: Double = 0.0,
+        subtitleOptions: SubtitleRetranslateOptions = SubtitleRetranslateOptions(sourceLang = sourceLang),
+        isQueuedJob: Boolean = false,
+        queueId: String? = null,
     ) {
         assertJobCurrent(jobToken)
         val settings = settingsRepo.settings.value
@@ -1035,7 +1556,7 @@ class SubcolabCoordinator(
             if (liveSrtFile.exists()) liveSrtFile.delete()
             if (liveOrigSrtFile.exists()) liveOrigSrtFile.delete()
             liveSrtFile.writeText("", Charsets.UTF_8)
-            _liveSrtRevision.value = 0L
+            resetLiveSrtRevision()
         }
 
         val initialSlug = if (canReuseSubtitles || isResuming) (prev?.titleSlug ?: existingPack?.titleSlug ?: "SUBCOLAB_Video_${packId.take(4)}")
@@ -1055,7 +1576,7 @@ class SubcolabCoordinator(
         )
 
         assertJobCurrent(jobToken)
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.BOOTING_GPU,
                 statusMessage = when {
@@ -1131,7 +1652,7 @@ class SubcolabCoordinator(
                             runCatching {
                                 colabClient.ensureWarmT4Runtime { statusMsg ->
                                     if (isJobCurrent(jobToken)) {
-                                        _state.update {
+                                        mutateState {
                                             it.copy(
                                                 translationProgressText = statusMsg,
                                             )
@@ -1176,7 +1697,7 @@ class SubcolabCoordinator(
                         resolvedTitleHint.replace(Regex("\\s*-\\s*(YouTube|Dailymotion)$", RegexOption.IGNORE_CASE), ""),
                     )
                     if (cleanSlug.length >= 3) {
-                        _state.update { cur ->
+                        mutateState { cur ->
                             if (cur.titleSlug.startsWith("SUBCOLAB_Video")) {
                                 cur.copy(
                                     titleSlug = cleanSlug,
@@ -1188,7 +1709,7 @@ class SubcolabCoordinator(
                 }
 
                 if (resolvedStream != null && resolvedStream.durationSec > 0.0) {
-                    _state.update { it.copy(totalDurationSec = resolvedStream.durationSec) }
+                    mutateState { it.copy(totalDurationSec = resolvedStream.durationSec) }
                 }
 
                 val smartSubtitlesApplied = if (!canReuseSubtitles && !isResuming && resolvedStream != null && resolvedStream.manualSubtitles.isNotEmpty()) {
@@ -1232,7 +1753,7 @@ class SubcolabCoordinator(
                         videoResolution = 720,
                     )
                     upsertSavedPack(intermediatePack)
-                    _state.update {
+                    mutateState {
                         it.copy(
                             playableVideoSource = currentPlayable,
                             isStitching = false,
@@ -1263,7 +1784,7 @@ class SubcolabCoordinator(
                     val localLiveVideoUrl = liveProxy.proxiedUrl(resolvedStream.videoUrl)
                     val localLiveAudioUrl = resolvedStream.audioUrl?.takeIf { it.isNotBlank() }
                         ?.let { liveProxy.proxiedUrl(it) }
-                    _state.update {
+                    mutateState {
                         it.copy(
                             playableVideoSource = localLiveVideoUrl,
                             playableAudioSource = localLiveAudioUrl,
@@ -1272,7 +1793,7 @@ class SubcolabCoordinator(
                             saveStatusText = "Live stream mode (manual subtitles loaded)",
                         )
                     }
-                    maybeNotifyPlayerReady(jobToken)
+                    maybeNotifyPlayerReady(jobToken, isQueuedJob = isQueuedJob, queueId = queueId)
                     subtitlesFinishedOk = true
                     finalVideoSource = localLiveVideoUrl
                 } else if (canRunSmoothLiveStream && resolvedStream != null) {
@@ -1284,7 +1805,7 @@ class SubcolabCoordinator(
                     val adaptiveAudioSec = StreamExtractor.computeAdaptiveAudioChunkSec(resolvedStream.durationSec)
 
                     appendLog("Live stream ready (${resolvedStream.clientUsed}, ${adaptiveAudioSec}s adaptive audio chunks)")
-                    _state.update {
+                    mutateState {
                         it.copy(
                             playableVideoSource = localLiveVideoUrl,
                             playableAudioSource = localLiveAudioUrl,
@@ -1326,12 +1847,12 @@ class SubcolabCoordinator(
                     val chunkStreamEnv = linkedMapOf(
                         "SUBCOLAB_VIDEO_URL" to "",
                         "SUBCOLAB_SOURCE_LANG" to sourceLang,
-                        "SUBCOLAB_CLEAN_AUDIO" to if (settings.cleanAudio) "True" else "False",
-                        "SUBCOLAB_VOCAL_BOOST" to "False",
-                        "SUBCOLAB_BEAM_SIZE" to "5",
+                        "SUBCOLAB_CLEAN_AUDIO" to if (subtitleOptions.cleanAudio) "True" else "False",
+                        "SUBCOLAB_VOCAL_BOOST" to if (subtitleOptions.vocalBoost) "True" else "False",
+                        "SUBCOLAB_BEAM_SIZE" to subtitleOptions.beamSize.coerceIn(1, 10).toString(),
                         "SUBCOLAB_PLAYER_CLIENT" to "default",
-                        "SUBCOLAB_MODEL_ID" to settings.modelId.ifBlank { "large-v3" },
-                        "SUBCOLAB_EMIT_ORIGINAL" to "False",
+                        "SUBCOLAB_MODEL_ID" to WhisperModels.normalize(subtitleOptions.modelId),
+                        "SUBCOLAB_EMIT_ORIGINAL" to if (subtitleOptions.includeOriginal) "True" else "False",
                         "SUBCOLAB_SKIP_COLAB_YT" to "True",
                         "SUBCOLAB_STREAMING_QUEUE" to "True",
                         "SUBCOLAB_JOB_ID" to packId,
@@ -1386,7 +1907,7 @@ class SubcolabCoordinator(
                                 initialSession = runtime,
                                 onStatus = { msg ->
                                     if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
-                                    _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
+                                    mutateState { it.copy(statusMessage = msg, translationProgressText = msg) }
                                     updateNotification("SUBCOLAB — Live T4 GPU", msg, ongoing = true)
                                 },
                                 onBeforeExecute = { session ->
@@ -1423,7 +1944,7 @@ class SubcolabCoordinator(
                             onProgress = { progress, label ->
                                 val pct = progress.toInt().coerceIn(0, 99)
                                 if (!isJobCurrent(jobToken)) return@downloadAudioInChunks
-                                _state.update {
+                                mutateState {
                                     it.copy(
                                         saveProgressPercent = pct,
                                         chunkDownloadStatus = label,
@@ -1472,7 +1993,7 @@ class SubcolabCoordinator(
                                     customTunnelToken = "",
                                 )
                             }
-                            _state.update {
+                            mutateState {
                                 it.copy(
                                     playableVideoSource = cachedPlayableSource,
                                     playableAudioSource = null,
@@ -1512,12 +2033,12 @@ class SubcolabCoordinator(
                     val colabStreamEnv = linkedMapOf(
                         "SUBCOLAB_VIDEO_URL" to cleanUrl,
                         "SUBCOLAB_SOURCE_LANG" to sourceLang,
-                        "SUBCOLAB_CLEAN_AUDIO" to if (settings.cleanAudio) "True" else "False",
-                        "SUBCOLAB_VOCAL_BOOST" to "False",
-                        "SUBCOLAB_BEAM_SIZE" to "5",
+                        "SUBCOLAB_CLEAN_AUDIO" to if (subtitleOptions.cleanAudio) "True" else "False",
+                        "SUBCOLAB_VOCAL_BOOST" to if (subtitleOptions.vocalBoost) "True" else "False",
+                        "SUBCOLAB_BEAM_SIZE" to subtitleOptions.beamSize.coerceIn(1, 10).toString(),
                         "SUBCOLAB_PLAYER_CLIENT" to "default",
-                        "SUBCOLAB_MODEL_ID" to settings.modelId.ifBlank { "large-v3" },
-                        "SUBCOLAB_EMIT_ORIGINAL" to "False",
+                        "SUBCOLAB_MODEL_ID" to WhisperModels.normalize(subtitleOptions.modelId),
+                        "SUBCOLAB_EMIT_ORIGINAL" to if (subtitleOptions.includeOriginal) "True" else "False",
                         "SUBCOLAB_SKIP_COLAB_YT" to "False",
                         "SUBCOLAB_STREAMING_QUEUE" to "False",
                         "SUBCOLAB_COLAB_CHUNK_STREAM" to "True",
@@ -1587,7 +2108,7 @@ class SubcolabCoordinator(
                                 } else {
                                     (orderedSnapshot.size * 8).coerceIn(5, 95)
                                 }
-                                _state.update { cur ->
+                                mutateState { cur ->
                                     cur.copy(
                                         playableChunks = orderedSnapshot,
                                         chunkDownloadStatus = "Chunk ${rc.index + 1} (${rc.endSec.toInt()}s) ready",
@@ -1600,10 +2121,10 @@ class SubcolabCoordinator(
                                         },
                                     )
                                 }
-                                maybeNotifyPlayerReady(jobToken)
+                                maybeNotifyPlayerReady(jobToken, isQueuedJob = isQueuedJob, queueId = queueId)
                             }
                             if (expectedRemoteChunks.get() > 0 && isJobCurrent(jobToken)) {
-                                _state.update {
+                                mutateState {
                                     it.copy(
                                         isChunkDownloadComplete = true,
                                         saveProgressPercent = 100,
@@ -1629,7 +2150,7 @@ class SubcolabCoordinator(
                                 initialSession = runtime,
                                 onStatus = { msg ->
                                     if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
-                                    _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
+                                    mutateState { it.copy(statusMessage = msg, translationProgressText = msg) }
                                     updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                                 },
                                 onBeforeExecute = { session ->
@@ -1650,7 +2171,7 @@ class SubcolabCoordinator(
                                         onRemoteChunksDone = { done ->
                                             expectedRemoteChunks.set(done.totalCount)
                                             if (done.totalDurationSec > 0.0) {
-                                                _state.update { cur ->
+                                                mutateState { cur ->
                                                     cur.copy(totalDurationSec = maxOf(cur.totalDurationSec, done.totalDurationSec))
                                                 }
                                             }
@@ -1685,7 +2206,7 @@ class SubcolabCoordinator(
                     if (allChunks.isEmpty()) {
                         throw IllegalStateException("Colab chunked stream returned 0 video chunks.")
                     }
-                    _state.update {
+                    mutateState {
                         it.copy(
                             isChunkDownloadComplete = true,
                             isStitching = true,
@@ -1777,7 +2298,7 @@ class SubcolabCoordinator(
                             ) { progress, _ ->
                                 val pct = progress.toInt().coerceIn(0, 99)
                                 if (!isJobCurrent(jobToken)) return@downloadMp4ForSave
-                                _state.update {
+                                mutateState {
                                     it.copy(
                                         savePackStatus = SavePackStatus.SAVING,
                                         saveProgressPercent = pct,
@@ -1831,7 +2352,7 @@ class SubcolabCoordinator(
                     if (!skipWhisperSubtitles) {
                         try {
                             val preparedLocalAudio: File? = if (isYouTube) {
-                                _state.update {
+                                mutateState {
                                     it.copy(
                                         translationProgressText = "Preparing YouTube audio on phone Wi-Fi + warming T4...",
                                     )
@@ -1849,13 +2370,9 @@ class SubcolabCoordinator(
                                 prewarmedRuntimeDeferred = prewarmedRuntimeDeferred,
                                 allowPhoneRelayFallback = true,
                                 skipColabYouTube = isYouTube,
-                                options = SubtitleRetranslateOptions(
+                                options = subtitleOptions.copy(
                                     sourceLang = sourceLang,
-                                    cleanAudio = settings.cleanAudio,
-                                    vocalBoost = false,
-                                    modelId = settings.modelId.ifBlank { "large-v3" },
-                                    beamSize = 5,
-                                    initialPrompt = "",
+                                    modelId = WhisperModels.normalize(subtitleOptions.modelId),
                                 ),
                                 silentBackground = false,
                                 resumeFromSec = effectiveResumeSec,
@@ -1872,7 +2389,7 @@ class SubcolabCoordinator(
 
                     if (!mp4DownloadDeferred.isCompleted) {
                         val currentPct = _state.value.saveProgressPercent
-                        _state.update {
+                        mutateState {
                             it.copy(
                                 phase = JobPhase.SAVING_PACK,
                                 statusMessage = "Subtitles done — finishing video download ($currentPct%)...",
@@ -1914,7 +2431,7 @@ class SubcolabCoordinator(
                     ?: error("Downloaded MP4 copy unavailable.")
                 assertJobCurrent(jobToken)
 
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = JobPhase.SAVING_PACK,
                         statusMessage = "Saving subtitles to Downloads/SUBCOLAB/...",
@@ -1967,10 +2484,11 @@ class SubcolabCoordinator(
 
                 val shouldPromptOrNotify = promptedReadyForJobToken != jobToken
                 promptedReadyForJobToken = jobToken
-                val showDialogInApp = shouldPromptOrNotify && (!fromExternalShare || SubcolabApp.isAppInForeground)
+                val treatAsQueuedOffer = isQueuedJob && queueId != null && !queuedJobAcceptedByUser
+                val showDialogInApp = !treatAsQueuedOffer && shouldPromptOrNotify && (!fromExternalShare || SubcolabApp.isAppInForeground)
                 val finishedLiveStream = _state.value.isLiveStreaming && finalVideoSource?.startsWith("http") == true
 
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = JobPhase.COMPLETED,
                         statusMessage = if (finishedLiveStream) {
@@ -1990,7 +2508,7 @@ class SubcolabCoordinator(
                         detectedOrigLang = subBundle.detectedOrigLang,
                         liveSrtPath = liveSrtFile.absolutePath,
                         liveOrigSrtPath = liveOrigSrtFile.takeIf { f -> f.exists() && f.length() > 0L }?.absolutePath,
-                        isPlayerReady = true,
+                        isPlayerReady = !treatAsQueuedOffer,
                         isReadyPromptVisible = showDialogInApp,
                         isStitching = false,
                         chunkDownloadStatus = if (finishedLiveStream) "Live stream • All subtitles ready" else null,
@@ -2015,8 +2533,36 @@ class SubcolabCoordinator(
                     )
                 }
                 persistSession(wasCompletedOverride = true)
-                AppLogger.i(TAG, "Pack complete: $folder (EN=${subBundle.enCueCount}, Orig=${subBundle.origCueCount}, live=$finishedLiveStream)")
-                if (shouldPromptOrNotify) {
+                AppLogger.i(TAG, "Pack complete: $folder (EN=${subBundle.enCueCount}, Orig=${subBundle.origCueCount}, live=$finishedLiveStream, queued=$treatAsQueuedOffer)")
+                if (treatAsQueuedOffer && isWatchNow && queueId != null && queueId !in dismissedOfferQueueIds) {
+                    val offer = ReadyQueuedOffer(
+                        queueId = queueId,
+                        packId = packId,
+                        titleSlug = slug,
+                        cueCount = subBundle.enCueCount,
+                        origCueCount = subBundle.origCueCount,
+                        detectedOrigLang = subBundle.detectedOrigLang,
+                        isLiveStreaming = finishedLiveStream,
+                        isComplete = true,
+                        playableVideoSource = resolvedFinalVideo,
+                        playableAudioSource = _state.value.playableAudioSource,
+                        enSrtPath = subBundle.internalEnSrtPath ?: liveSrtFile.absolutePath,
+                        origSrtPath = subBundle.internalOrigSrtPath ?: liveOrigSrtFile.takeIf { f -> f.exists() && f.length() > 0L }?.absolutePath,
+                    )
+                    mutateState { st ->
+                        val updated = st.readyQueuedOffers.filterNot { it.queueId == queueId } + offer
+                        st.copy(readyQueuedOffers = updated)
+                    }
+                    snapshotFinishedQueuedJobForOffer(queueId)
+                    queuedReadyNotificationCallback?.invoke(queueId, slug, subBundle.enCueCount, true, finishedLiveStream)
+                } else if (treatAsQueuedOffer) {
+                    // Queued Download-only job completed quietly
+                    updateNotification(
+                        "SUBCOLAB — Saved ($folder)",
+                        "Video & ${subBundle.enCueCount} EN cues saved to Downloads/SUBCOLAB/$folder/",
+                        ongoing = _state.value.queuedJobs.isNotEmpty(),
+                    )
+                } else if (shouldPromptOrNotify) {
                     if (isWatchNow && !SubcolabApp.isAppInForeground) {
                         val launched = launchPlayerFromBackground()
                         playerReadyNotificationCallback?.invoke(slug, subBundle.enCueCount, true, finishedLiveStream, !launched)
@@ -2031,7 +2577,7 @@ class SubcolabCoordinator(
                         } else {
                             "Video & ${subBundle.enCueCount} EN cues saved to Downloads/SUBCOLAB/$folder/"
                         },
-                        ongoing = false,
+                        ongoing = _state.value.queuedJobs.isNotEmpty(),
                     )
                 }
             }
@@ -2083,6 +2629,10 @@ class SubcolabCoordinator(
             if (!chunksDirScheduledForDeferredDelete && chunksDir.exists()) {
                 scheduleChunksDirCleanup(chunksDir)
             }
+            if (isJobCurrent(jobToken)) {
+                activeJob = null
+                startNextQueuedJobIfAny(jobToken, queueId)
+            }
         }
     }
 
@@ -2097,7 +2647,7 @@ class SubcolabCoordinator(
         if (liveSrtFile.exists()) liveSrtFile.delete()
         if (liveOrigSrtFile.exists()) liveOrigSrtFile.delete()
         liveSrtFile.writeText("", Charsets.UTF_8)
-        _liveSrtRevision.value = 0L
+        resetLiveSrtRevision()
 
         val settings = settingsRepo.settings.value
         val initialName = LocalAudioExtractor.resolveDisplayName(appContext, uri)
@@ -2115,7 +2665,7 @@ class SubcolabCoordinator(
             localVideoUri = videoUriString,
         )
 
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.EXTRACTING_STREAM,
                 statusMessage = "Extracting audio from $initialName...",
@@ -2157,13 +2707,13 @@ class SubcolabCoordinator(
                 workDir = localDir,
                 onStatus = { status ->
                     if (!isJobCurrent(jobToken)) return@extractAudioForColab
-                    _state.update { it.copy(statusMessage = status, translationProgressText = status) }
+                    mutateState { it.copy(statusMessage = status, translationProgressText = status) }
                 },
             )
             extractedAudioFile = extracted.audioFile
             assertJobCurrent(jobToken)
 
-            _state.update {
+            mutateState {
                 it.copy(
                     titleSlug = extracted.titleSlug,
                     previousJob = it.previousJob?.copy(titleSlug = extracted.titleSlug),
@@ -2191,7 +2741,7 @@ class SubcolabCoordinator(
             )
 
             assertJobCurrent(jobToken)
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.SAVING_PACK,
                     statusMessage = "Saving subtitles to Downloads/SUBCOLAB/...",
@@ -2235,7 +2785,7 @@ class SubcolabCoordinator(
             )
             upsertSavedPack(pack)
 
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.COMPLETED,
                     statusMessage = "Ready — ${subBundle.enCueCount} EN" +
@@ -2275,6 +2825,10 @@ class SubcolabCoordinator(
             handlePipelineFailure(jobToken, t, fromExternalShare = false)
         } finally {
             runCatching { extractedAudioFile?.delete() }
+            if (isJobCurrent(jobToken)) {
+                activeJob = null
+                startNextQueuedJobIfAny(jobToken, null)
+            }
         }
     }
 
@@ -2287,7 +2841,7 @@ class SubcolabCoordinator(
         val folder = pack.effectiveFolder
         val tempMp4 = File(appContext.cacheDir, "subcolab_pack_${packId}_redl.mp4")
 
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.SAVING_PACK,
                 statusMessage = "Downloading ${maxHeight}p MP4 for ${pack.titleSlug.replace('_', ' ')}...",
@@ -2314,7 +2868,7 @@ class SubcolabCoordinator(
                 ) { progress, _ ->
                     val pct = progress.toInt().coerceIn(0, 99)
                     if (!isJobCurrent(jobToken)) return@downloadMp4ForSave
-                    _state.update {
+                    mutateState {
                         it.copy(
                             saveProgressPercent = pct,
                             saveStatusText = "Downloading ${maxHeight}p MP4 ($pct%)...",
@@ -2355,7 +2909,7 @@ class SubcolabCoordinator(
             )
             upsertSavedPack(updated)
 
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.COMPLETED,
                     statusMessage = "Downloaded ${maxHeight}p MP4 to Downloads/SUBCOLAB/$folder/",
@@ -2378,6 +2932,10 @@ class SubcolabCoordinator(
             handlePipelineFailure(jobToken, t, fromExternalShare = false)
         } finally {
             runCatching { tempMp4.delete() }
+            if (isJobCurrent(jobToken)) {
+                activeJob = null
+                startNextQueuedJobIfAny(jobToken, null)
+            }
         }
     }
 
@@ -2393,9 +2951,9 @@ class SubcolabCoordinator(
         if (liveSrtFile.exists()) liveSrtFile.delete()
         if (liveOrigSrtFile.exists()) liveOrigSrtFile.delete()
         liveSrtFile.writeText("", Charsets.UTF_8)
-        _liveSrtRevision.value = 0L
+        resetLiveSrtRevision()
 
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.BOOTING_GPU,
                 statusMessage = "Generating subtitles for ${pack.titleSlug.replace('_', ' ')}...",
@@ -2428,7 +2986,7 @@ class SubcolabCoordinator(
                     workDir = localDir,
                     onStatus = { msg ->
                         if (isJobCurrent(jobToken)) {
-                            _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
+                            mutateState { it.copy(statusMessage = msg, translationProgressText = msg) }
                         }
                     },
                 )
@@ -2438,7 +2996,7 @@ class SubcolabCoordinator(
             } else if (!pack.isLocalVideo && UrlUnwrapper.isValidVideoUrl(pack.sourceUrl)) {
                 val isYt = streamExtractor.isYouTubeUrl(pack.sourceUrl)
                 if (isYt) {
-                    _state.update {
+                    mutateState {
                         it.copy(
                             phase = JobPhase.EXTRACTING_STREAM,
                             statusMessage = "Fetching YouTube audio on phone Wi-Fi...",
@@ -2493,7 +3051,7 @@ class SubcolabCoordinator(
             )
             upsertSavedPack(updatedPack)
 
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.COMPLETED,
                     statusMessage = "Subtitles updated: ${subBundle.enCueCount} EN" +
@@ -2527,6 +3085,10 @@ class SubcolabCoordinator(
         } finally {
             runCatching { tempAudioFile?.delete() }
             runCatching { localDir.deleteRecursively() }
+            if (isJobCurrent(jobToken)) {
+                activeJob = null
+                startNextQueuedJobIfAny(jobToken, null)
+            }
         }
     }
 
@@ -2577,7 +3139,7 @@ class SubcolabCoordinator(
                 if (initialLocalAudioFile != null || extraEnv.containsKey("SUBCOLAB_LOCAL_AUDIO")) {
                     throw IllegalStateException("Local/relayed audio translation requires Google Colab T4 mode (disable Custom Tunnel in Settings).")
                 }
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = JobPhase.BOOTING_GPU,
                         statusMessage = "Connecting to Custom Colab Tunnel...",
@@ -2602,7 +3164,7 @@ class SubcolabCoordinator(
                 } else {
                     colabClient.ensureWarmT4Runtime { statusMsg ->
                         if (!isJobCurrent(jobToken)) return@ensureWarmT4Runtime
-                        _state.update {
+                        mutateState {
                             it.copy(
                                 phase = JobPhase.BOOTING_GPU,
                                 statusMessage = statusMsg,
@@ -2620,7 +3182,7 @@ class SubcolabCoordinator(
                 if (initialLocalAudioFile != null && !extraEnv.containsKey("SUBCOLAB_LOCAL_AUDIO")) {
                     val remoteLocalPath = "/content/subcolab_local_${initialLocalAudioFile.name}"
                     val kb = initialLocalAudioFile.length() / 1024
-                    _state.update {
+                    mutateState {
                         it.copy(
                             phase = JobPhase.BOOTING_GPU,
                             statusMessage = "Uploading extracted audio ($kb KB) to T4 GPU...",
@@ -2639,7 +3201,7 @@ class SubcolabCoordinator(
                         initialSession = runtime,
                         onStatus = { msg ->
                             if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
-                            _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
+                            mutateState { it.copy(statusMessage = msg, translationProgressText = msg) }
                             updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                         },
                         onOutputLine = { line ->
@@ -2664,7 +3226,7 @@ class SubcolabCoordinator(
                     initialSession = runtime,
                     onStatus = { msg ->
                         if (!isJobCurrent(jobToken)) return@executeWorkerWithAutoRecover
-                        _state.update { it.copy(statusMessage = msg, translationProgressText = msg) }
+                        mutateState { it.copy(statusMessage = msg, translationProgressText = msg) }
                         updateNotification("SUBCOLAB — T4 GPU", msg, ongoing = true)
                     },
                     onOutputLine = { line ->
@@ -2681,7 +3243,7 @@ class SubcolabCoordinator(
         runColabPass(emptyMap())
 
         if (botBlocked && allowPhoneRelayFallback && initialLocalAudioFile == null) {
-            _state.update {
+            mutateState {
                 it.copy(
                     phase = JobPhase.EXTRACTING_STREAM,
                     statusMessage = "Colab IP blocked — fetching audio on phone Wi-Fi...",
@@ -2706,7 +3268,7 @@ class SubcolabCoordinator(
             val runtime = colabClient.activeSession
                 ?: colabClient.ensureWarmT4Runtime { msg -> appendLog(msg) }
             val kb = audioFile.length() / 1024
-            _state.update {
+            mutateState {
                 it.copy(
                     statusMessage = "Uploading relayed audio ($kb KB) to T4...",
                     translationProgressText = "Uploading relayed audio ($kb KB) to T4...",
@@ -2741,7 +3303,7 @@ class SubcolabCoordinator(
             "SUBCOLAB_JOB_ID" to "",
         )
 
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.SAVING_PACK,
                 statusMessage = "Downloading <=${maxHeight}p MP4 via Colab relay...",
@@ -2765,7 +3327,7 @@ class SubcolabCoordinator(
             initialSession = runtimeSession,
             onStatus = { msg ->
                 if (isJobCurrent(jobToken)) {
-                    _state.update { it.copy(saveStatusText = msg) }
+                    mutateState { it.copy(saveStatusText = msg) }
                     appendLog(msg)
                 }
             },
@@ -2782,7 +3344,7 @@ class SubcolabCoordinator(
                 } else if (line.startsWith("@@SUBCOLAB_STATUS@@")) {
                     val msg = line.removePrefix("@@SUBCOLAB_STATUS@@").trim()
                     if (isJobCurrent(jobToken) && msg.isNotBlank()) {
-                        _state.update { it.copy(saveStatusText = msg) }
+                        mutateState { it.copy(saveStatusText = msg) }
                         appendLog(msg)
                     }
                 }
@@ -2794,7 +3356,7 @@ class SubcolabCoordinator(
         try {
             colabClient.downloadRemoteFile(runtime, remoteMp4Path, destMp4) { pct ->
                 if (isJobCurrent(jobToken)) {
-                    _state.update {
+                    mutateState {
                         it.copy(
                             saveProgressPercent = pct.coerceIn(0, 99),
                             saveStatusText = "Transferring MP4 from Colab ($pct%)...",
@@ -2828,7 +3390,7 @@ class SubcolabCoordinator(
             is WorkerEvent.RemoteChunkReady -> onRemoteChunkReady?.invoke(event)
             is WorkerEvent.RemoteChunksDone -> onRemoteChunksDone?.invoke(event)
             is WorkerEvent.Title -> {
-                _state.update {
+                mutateState {
                     it.copy(
                         titleSlug = event.slug,
                         previousJob = it.previousJob?.copy(titleSlug = event.slug),
@@ -2836,7 +3398,7 @@ class SubcolabCoordinator(
                 }
             }
             is WorkerEvent.OrigLang -> {
-                _state.update {
+                mutateState {
                     it.copy(detectedOrigLang = event.langCode)
                 }
             }
@@ -2849,7 +3411,7 @@ class SubcolabCoordinator(
                     event.message.contains("Downloading audio", ignoreCase = true) -> JobPhase.EXTRACTING_STREAM
                     else -> _state.value.phase
                 }
-                _state.update {
+                mutateState {
                     it.copy(
                         phase = nextPhase,
                         statusMessage = event.message,
@@ -2861,8 +3423,8 @@ class SubcolabCoordinator(
             }
             is WorkerEvent.CueArrived -> {
                 subtitleManager.writeLiveSrt(liveSrtFile)
-                _liveSrtRevision.value = _liveSrtRevision.value + 1L
-                _state.update {
+                bumpLiveSrtRevision()
+                mutateState {
                     it.copy(
                         phase = JobPhase.TRANSLATING,
                         cueCount = event.totalCount,
@@ -2871,15 +3433,19 @@ class SubcolabCoordinator(
                         previousJob = it.previousJob?.copy(subtitlesCompleted = false),
                     )
                 }
-                maybeNotifyPlayerReady(jobToken)
+                maybeNotifyPlayerReady(
+                    jobToken = jobToken,
+                    isQueuedJob = _state.value.isActiveJobQueued,
+                    queueId = _state.value.activeJobQueueId,
+                )
                 if (event.totalCount == 4 || event.totalCount % 10 == 0) {
                     persistSession()
                 }
             }
             is WorkerEvent.OrigCueArrived -> {
                 subtitleManager.writeOrigSrt(liveOrigSrtFile)
-                _liveSrtRevision.value = _liveSrtRevision.value + 1L
-                _state.update {
+                bumpLiveSrtRevision()
+                mutateState {
                     it.copy(
                         phase = JobPhase.TRANSLATING,
                         origCueCount = event.totalCount,
@@ -2893,7 +3459,7 @@ class SubcolabCoordinator(
             }
             is WorkerEvent.ChunkCompleted -> {
                 val chunks = subtitleManager.getCompletedChunks()
-                _state.update { it.copy(completedChunks = chunks) }
+                mutateState { it.copy(completedChunks = chunks) }
                 persistSession()
             }
             is WorkerEvent.AllDone -> {
@@ -2901,8 +3467,8 @@ class SubcolabCoordinator(
                 if (subtitleManager.origCueCount() > 0) {
                     subtitleManager.writeOrigSrt(liveOrigSrtFile)
                 }
-                _liveSrtRevision.value = _liveSrtRevision.value + 1L
-                _state.update {
+                bumpLiveSrtRevision()
+                mutateState {
                     it.copy(
                         previousJob = it.previousJob?.copy(subtitlesCompleted = true),
                     )
@@ -2923,7 +3489,7 @@ class SubcolabCoordinator(
         }
         val msg = t.message ?: t::class.simpleName ?: "Unknown error"
         AppLogger.e(TAG, "Pipeline failed", t)
-        _state.update {
+        mutateState {
             it.copy(
                 phase = JobPhase.ERROR,
                 statusMessage = "Error: $msg",
@@ -2943,7 +3509,7 @@ class SubcolabCoordinator(
 
     private fun appendLog(line: String) {
         AppLogger.i(TAG, line)
-        _state.update { current ->
+        mutateState { current ->
             current.copy(logTail = (current.logTail + line).takeLast(30))
         }
     }

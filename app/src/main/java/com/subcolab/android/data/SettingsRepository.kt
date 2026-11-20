@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.subcolab.android.model.AppSettings
 import com.subcolab.android.model.PersistedJobSession
+import com.subcolab.android.model.WhisperModels
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,13 +31,17 @@ class SettingsRepository(private val context: Context) {
         val parsed = if (raw != null) {
             runCatching { json.decodeFromString<AppSettings>(raw) }.getOrNull()
         } else null
-        return (parsed ?: AppSettings()).copy(
+        val base = parsed ?: AppSettings()
+        return base.copy(
+            modelId = WhisperModels.normalize(base.modelId),
             hasCookiesFile = cookiesFile.exists() && cookiesFile.length() > 0L,
         )
     }
 
     fun update(transform: (AppSettings) -> AppSettings) {
-        val updated = transform(_settings.value).copy(
+        val next = transform(_settings.value)
+        val updated = next.copy(
+            modelId = WhisperModels.normalize(next.modelId),
             hasCookiesFile = cookiesFile.exists() && cookiesFile.length() > 0L,
         )
         _settings.value = updated

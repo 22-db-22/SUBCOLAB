@@ -124,6 +124,7 @@ import com.subcolab.android.model.SavePackStatus
 import com.subcolab.android.model.SavedPack
 import com.subcolab.android.model.SubtitleRetranslateOptions
 import com.subcolab.android.model.WhisperLanguages
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.ui.theme.SubcolabColors
 import com.subcolab.android.util.UrlUnwrapper
@@ -161,6 +162,10 @@ fun HomeScreen(
     onOpenDebugLogs: () -> Unit = {},
     onCopyAllLogs: () -> String = { "" },
     onDismissLastCrash: () -> Unit = {},
+    onDismissQuickTips: () -> Unit = {},
+    onRemoveQueuedJob: (queueId: String) -> Unit = {},
+    onSwitchToQueuedOffer: (queueId: String) -> Unit = {},
+    onHideQueuedOffer: (queueId: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -369,6 +374,10 @@ fun HomeScreen(
                         }
                     },
                     onDismissLastCrash = onDismissLastCrash,
+                    onDismissQuickTips = onDismissQuickTips,
+                    onRemoveQueuedJob = onRemoveQueuedJob,
+                    onSwitchToQueuedOffer = onSwitchToQueuedOffer,
+                    onHideQueuedOffer = onHideQueuedOffer,
                     onJumpToDownloads = {
                         coroutineScope.launch { pagerState.animateScrollToPage(1) }
                     },
@@ -684,11 +693,14 @@ private fun TranslateTabContent(
     onCopyAllLogs: () -> Unit,
     onPasteClipboard: () -> Unit,
     onDismissLastCrash: () -> Unit,
+    onDismissQuickTips: () -> Unit,
+    onRemoveQueuedJob: (queueId: String) -> Unit,
+    onSwitchToQueuedOffer: (queueId: String) -> Unit,
+    onHideQueuedOffer: (queueId: String) -> Unit,
     onJumpToDownloads: () -> Unit,
 ) {
     val context = LocalContext.current
     var overlayBannerDismissed by remember { mutableStateOf(false) }
-    var quickTipsDismissed by remember { mutableStateOf(false) }
     var quickTipsExpanded by remember { mutableStateOf(true) }
     var jobResultDismissed by remember { mutableStateOf(false) }
     var previousCardDismissed by remember { mutableStateOf(false) }
@@ -860,9 +872,9 @@ private fun TranslateTabContent(
             }
         }
 
-        // Collapsible / Swipe-to-Dismiss Quick Tips Card
-        if (!quickTipsDismissed) {
-            SwipeDismissibleBanner(onDismiss = { quickTipsDismissed = true }) {
+        // Collapsible / Swipe-to-Dismiss Quick Tips Card (persisted permanently once dismissed)
+        if (!settings.quickTipsDismissed) {
+            SwipeDismissibleBanner(onDismiss = onDismissQuickTips) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SubcolabColors.CardSurface),
                     border = BorderStroke(1.dp, SubcolabColors.WarmBorder),
@@ -919,7 +931,7 @@ private fun TranslateTabContent(
                                 modifier = Modifier.size(18.dp),
                             )
                             IconButton(
-                                onClick = { quickTipsDismissed = true },
+                                onClick = onDismissQuickTips,
                                 modifier = Modifier.size(28.dp),
                             ) {
                                 Icon(
@@ -961,6 +973,81 @@ private fun TranslateTabContent(
                                     lineHeight = 16.sp,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-interrupting Ready-to-Watch Queued Offers ("Watch Now" / "Hide")
+        jobState.readyQueuedOffers.forEach { offer ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
+                border = BorderStroke(1.5.dp, SubcolabColors.SagePrimary.copy(alpha = 0.85f)),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = SubcolabColors.SuccessGreen,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (offer.isLiveStreaming) "Queued Video Ready to Watch" else "Queued Video Ready",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = SubcolabColors.SuccessGreen,
+                            )
+                            Text(
+                                text = "${offer.titleSlug.replace('_', ' ')} • ${offer.cueCount} cues",
+                                fontSize = 12.sp,
+                                color = SubcolabColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { onHideQueuedOffer(offer.queueId) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = "Hide",
+                                color = SubcolabColors.TextSecondary,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                            )
+                        }
+                        Button(
+                            onClick = { onSwitchToQueuedOffer(offer.queueId) },
+                            modifier = Modifier.weight(1.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SubcolabColors.SagePrimary,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Watch Now", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -1197,6 +1284,66 @@ private fun TranslateTabContent(
             }
         }
 
+        // Queued Job Process Boxes ("Queued No. 1", "Queued No. 2", ...) — next box promotes to Active Job when current finishes
+        jobState.queuedJobs.forEachIndexed { idx, item ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
+                border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Surface(
+                        color = if (item.mode == WorkflowMode.WATCH_NOW) SubcolabColors.SagePrimary.copy(alpha = 0.2f) else SubcolabColors.SkyContainer,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(
+                            text = "Queued No. ${idx + 1}",
+                            color = if (item.mode == WorkflowMode.WATCH_NOW) SubcolabColors.SagePrimary else SubcolabColors.SkyTextStrong,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.titleSlug.replace('_', ' '),
+                            color = SubcolabColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val modeLabel = if (item.mode == WorkflowMode.WATCH_NOW) "Watch Now" else "Download"
+                        val modelLabel = WhisperModels.normalize(item.subtitleOptions.modelId)
+                        Text(
+                            text = "$modeLabel • ${item.sourceLang} • $modelLabel",
+                            color = SubcolabColors.TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(
+                        onClick = { onRemoveQueuedJob(item.queueId) },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Remove from queue",
+                            tint = SubcolabColors.TextSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+
         // Card 1: Paste Video Link (with integrated Spoken Language selector)
         Card(
             colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
@@ -1305,13 +1452,21 @@ private fun TranslateTabContent(
                     }
                 }
 
+                if (isRunning) {
+                    Text(
+                        text = "Job active — tapping Download or Watch Now adds this link to Queued No. ${jobState.queuedJobs.size + 1}.",
+                        fontSize = 11.sp,
+                        color = SubcolabColors.GpuCyan,
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     OutlinedButton(
                         onClick = onStartDownloadJob,
-                        enabled = urlInput.isNotBlank() && !isRunning,
+                        enabled = urlInput.isNotBlank(),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 50.dp),
@@ -1339,7 +1494,7 @@ private fun TranslateTabContent(
 
                     Button(
                         onClick = onStartWatchNowJob,
-                        enabled = urlInput.isNotBlank() && !isRunning,
+                        enabled = urlInput.isNotBlank(),
                         modifier = Modifier
                             .weight(1.2f)
                             .heightIn(min = 50.dp),
@@ -2026,7 +2181,7 @@ private fun SubtitleOptionsDialog(
     onStartRetranslate: (SubtitleRetranslateOptions) -> Unit,
 ) {
     var lang by remember { mutableStateOf(pack.sourceLang.ifBlank { "auto" }) }
-    var modelId by remember { mutableStateOf(defaultModelId.ifBlank { "large-v3" }) }
+    var modelId by remember { mutableStateOf(WhisperModels.normalize(defaultModelId)) }
     var cleanAudio by remember { mutableStateOf(defaultCleanAudio) }
     var vocalBoost by remember { mutableStateOf(false) }
     var includeOriginal by remember { mutableStateOf(false) }
@@ -2085,14 +2240,10 @@ private fun SubtitleOptionsDialog(
                     }
                 }
 
-                // Model selector
+                // Model selector (restricted to large-v3 default & turbo)
                 Text("Whisper Model", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        "large-v3" to "large-v3 (Best)",
-                        "large-v3-turbo" to "turbo (Fast)",
-                        "medium" to "medium",
-                    ).forEach { (id, label) ->
+                    WhisperModels.allowed.forEach { (id, label) ->
                         FilterChip(
                             selected = modelId == id,
                             onClick = { modelId = id },

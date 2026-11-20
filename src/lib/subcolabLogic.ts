@@ -302,3 +302,317 @@ export function formatSubtitleDelay(delaySec: number): string {
   return `${delaySec > 0 ? '+' : ''}${delaySec.toFixed(1)}s`;
 }
 
+export type WhisperModelId = 'large-v3' | 'large-v3-turbo';
+
+export const WHISPER_MODELS: { id: WhisperModelId; label: string }[] = [
+  { id: 'large-v3', label: 'large-v3 (Best)' },
+  { id: 'large-v3-turbo', label: 'turbo (Fast)' },
+];
+
+export function normalizeWhisperModel(raw?: string | null): WhisperModelId {
+  const trimmed = (raw ?? '').trim().toLowerCase();
+  if (trimmed === 'large-v3-turbo' || trimmed === 'turbo') {
+    return 'large-v3-turbo';
+  }
+  return 'large-v3';
+}
+
+export interface ShareSubtitleOptions {
+  sourceLang: string;
+  modelId: WhisperModelId;
+  cleanAudio: boolean;
+  vocalBoost: boolean;
+  highPrecisionBeam: boolean;
+  includeOriginal: boolean;
+}
+
+export const DEFAULT_SHARE_SUBTITLE_OPTIONS: ShareSubtitleOptions = {
+  sourceLang: 'auto',
+  modelId: 'large-v3',
+  cleanAudio: false,
+  vocalBoost: false,
+  highPrecisionBeam: false,
+  includeOriginal: false,
+};
+
+export interface QueuedJob {
+  queueId: string;
+  title: string;
+  url: string;
+  mode: WorkflowModeId;
+  options: ShareSubtitleOptions;
+}
+
+export interface ReadyQueuedOffer {
+  queueId: string;
+  title: string;
+  url: string;
+  cueCount: number;
+  modelId: WhisperModelId;
+}
+
+export interface ActiveSimJob {
+  id: string;
+  title: string;
+  url: string;
+  mode: WorkflowModeId;
+  options: ShareSubtitleOptions;
+  isFromQueue: boolean;
+  cueCount: number;
+  status: 'running' | 'completed';
+}
+
+export interface PlayingSimVideo {
+  id: string;
+  title: string;
+  url: string;
+  cueCount: number;
+  modelId: WhisperModelId;
+}
+
+export interface QueueSimulationState {
+  activeJob: ActiveSimJob | null;
+  queuedJobs: QueuedJob[];
+  readyOffers: ReadyQueuedOffer[];
+  playingVideo: PlayingSimVideo | null;
+  shouldAutoOpenPlayer: boolean;
+}
+
+export function createInitialQueueState(): QueueSimulationState {
+  return {
+    activeJob: null,
+    queuedJobs: [],
+    readyOffers: [],
+    playingVideo: null,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function buildShortTitleFromUrl(rawUrl: string): string {
+  try {
+    const u = new URL(extractAndUnwrapUrl(rawUrl));
+    const seg = u.pathname.split('/').filter(Boolean).pop();
+    if (seg && seg.toLowerCase() !== 'watch') {
+      return `${u.hostname.replace(/^www\./, '').split('.')[0]}_${seg}`.slice(0, 28);
+    }
+    const v = u.searchParams.get('v');
+    if (v) return `youtube_${v}`.slice(0, 28);
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return rawUrl.slice(0, 28) || 'video';
+  }
+}
+
+export function submitJobToQueueState(
+  state: QueueSimulationState,
+  params: {
+    id: string;
+    url: string;
+    title?: string;
+    mode: WorkflowModeId;
+    options: ShareSubtitleOptions;
+  },
+): { state: QueueSimulationState; queuePosition: number } {
+  const cleanUrl = extractAndUnwrapUrl(params.url);
+  const title = params.title?.trim() || buildShortTitleFromUrl(cleanUrl);
+  const normalizedOptions: ShareSubtitleOptions = {
+    ...params.options,
+    sourceLang: params.options.sourceLang || 'auto',
+    modelId: normalizeWhisperModel(params.options.modelId),
+  };
+
+  if (state.activeJob && state.activeJob.status === 'running') {
+    const queued: QueuedJob = {
+      queueId: params.id,
+      title,
+      url: cleanUrl,
+      mode: params.mode,
+      options: normalizedOptions,
+    };
+    const nextQueue = [...state.queuedJobs, queued];
+    return {
+      state: {
+        ...state,
+        queuedJobs: nextQueue,
+        shouldAutoOpenPlayer: false,
+      },
+      queuePosition: nextQueue.length,
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      activeJob: {
+        id: params.id,
+        title,
+        url: cleanUrl,
+        mode: params.mode,
+        options: normalizedOptions,
+        isFromQueue: false,
+        cueCount: 0,
+        status: 'running',
+      },
+      shouldAutoOpenPlayer: false,
+    },
+    queuePosition: 0,
+  };
+}
+
+export function onActiveJobMediaReady(
+  state: QueueSimulationState,
+  cueCount: number,
+): QueueSimulationState {
+  const active = state.activeJob;
+  if (!active || active.status !== 'running') return state;
+
+  const updatedActive: ActiveSimJob = { ...active, cueCount };
+  if (active.mode !== 'WATCH_NOW') {
+    return { ...state, activeJob: updatedActive, shouldAutoOpenPlayer: false };
+  }
+
+  if (!active.isFromQueue && !state.playingVideo) {
+    return {
+      ...state,
+      activeJob: updatedActive,
+      playingVideo: {
+        id: active.id,
+        title: active.title,
+        url: active.url,
+        cueCount,
+        modelId: active.options.modelId,
+      },
+      shouldAutoOpenPlayer: true,
+    };
+  }
+
+  // Queued Watch Now job must NOT interrupt current playback; offer top notification ("Watch Now" / "Hide")
+  const alreadyOffered = state.readyOffers.some((o) => o.queueId === active.id);
+  const nextOffers = alreadyOffered
+    ? state.readyOffers.map((o) => (o.queueId === active.id ? { ...o, cueCount } : o))
+    : [
+        ...state.readyOffers,
+        {
+          queueId: active.id,
+          title: active.title,
+          url: active.url,
+          cueCount,
+          modelId: active.options.modelId,
+        },
+      ];
+
+  return {
+    ...state,
+    activeJob: updatedActive,
+    readyOffers: nextOffers,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function completeActiveAndPromoteQueue(
+  state: QueueSimulationState,
+  finalCueCount: number,
+): QueueSimulationState {
+  const active = state.activeJob;
+  const offersWithCurrent = active
+    ? state.readyOffers.map((o) => (o.queueId === active.id ? { ...o, cueCount: finalCueCount } : o))
+    : state.readyOffers;
+
+  const updatedPlaying =
+    state.playingVideo && active && state.playingVideo.id === active.id
+      ? { ...state.playingVideo, cueCount: finalCueCount }
+      : state.playingVideo;
+
+  const [nextQueued, ...remainingQueue] = state.queuedJobs;
+  if (!nextQueued) {
+    return {
+      ...state,
+      activeJob: active ? { ...active, cueCount: finalCueCount, status: 'completed' } : null,
+      readyOffers: offersWithCurrent,
+      playingVideo: updatedPlaying,
+      shouldAutoOpenPlayer: false,
+    };
+  }
+
+  return {
+    ...state,
+    activeJob: {
+      id: nextQueued.queueId,
+      title: nextQueued.title,
+      url: nextQueued.url,
+      mode: nextQueued.mode,
+      options: nextQueued.options,
+      isFromQueue: true,
+      cueCount: 0,
+      status: 'running',
+    },
+    queuedJobs: remainingQueue,
+    readyOffers: offersWithCurrent,
+    playingVideo: updatedPlaying,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function switchToReadyOffer(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  const offer = state.readyOffers.find((o) => o.queueId === queueId);
+  if (!offer) return state;
+  return {
+    ...state,
+    playingVideo: {
+      id: offer.queueId,
+      title: offer.title,
+      url: offer.url,
+      cueCount: offer.cueCount,
+      modelId: offer.modelId,
+    },
+    readyOffers: state.readyOffers.filter((o) => o.queueId !== queueId),
+    shouldAutoOpenPlayer: true,
+  };
+}
+
+export function hideReadyOffer(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  return {
+    ...state,
+    readyOffers: state.readyOffers.filter((o) => o.queueId !== queueId),
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function removeQueuedJobById(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  return {
+    ...state,
+    queuedJobs: state.queuedJobs.filter((q) => q.queueId !== queueId),
+  };
+}
+
+export const QUICK_TIPS_DISMISSED_KEY = 'subcolab_quick_tips_dismissed';
+
+export function readQuickTipsDismissed(storage?: Pick<Storage, 'getItem'> | null): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(QUICK_TIPS_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function persistQuickTipsDismissed(storage?: Pick<Storage, 'setItem'> | null): boolean {
+  if (!storage) return true;
+  try {
+    storage.setItem(QUICK_TIPS_DISMISSED_KEY, '1');
+  } catch {
+    // ignore quota/private-mode storage failure
+  }
+  return true;
+}
+
+

@@ -12,6 +12,7 @@ import com.subcolab.android.model.AppSettings
 import com.subcolab.android.model.JobProgressState
 import com.subcolab.android.model.SubtitleRetranslateOptions
 import com.subcolab.android.model.ThemeMode
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.service.SubcolabForegroundService
 import com.subcolab.android.util.AppLogger
@@ -28,7 +29,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val settingsRepo = app.settingsRepository
 
     val jobState: StateFlow<JobProgressState> = coordinator.state
+    val playerState: StateFlow<JobProgressState> = coordinator.playerState
     val liveSrtRevision: StateFlow<Long> = coordinator.liveSrtRevision
+    val playerSrtRevision: StateFlow<Long> = coordinator.playerSrtRevision
     val authState: StateFlow<AuthUiState> = authManager.authState
     val settings: StateFlow<AppSettings> = settingsRepo.settings
     val lastCrashText: StateFlow<String?> = AppLogger.lastCrashText
@@ -150,6 +153,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         coordinator.setPlayerScreenOpen(open)
     }
 
+    fun removeQueuedJob(queueId: String) {
+        coordinator.removeQueuedJob(queueId)
+    }
+
+    fun switchToQueuedOffer(context: Context, queueId: String): Boolean {
+        SubcolabForegroundService.cancelQueuedNotification(context, queueId)
+        return coordinator.switchToQueuedOffer(queueId)
+    }
+
+    fun hideQueuedOffer(context: Context, queueId: String) {
+        SubcolabForegroundService.cancelQueuedNotification(context, queueId)
+        coordinator.hideQueuedReadyOffer(queueId)
+    }
+
+    fun dismissQuickTips() {
+        settingsRepo.update { it.copy(quickTipsDismissed = true) }
+    }
+
     fun signInWithLoopback(activityContext: Context) {
         viewModelScope.launch {
             val s = settingsRepo.settings.value
@@ -234,7 +255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setModelId(modelId: String) {
-        settingsRepo.update { it.copy(modelId = modelId.ifBlank { "large-v3" }) }
+        settingsRepo.update { it.copy(modelId = WhisperModels.normalize(modelId)) }
     }
 
     fun setThemeMode(mode: ThemeMode) {

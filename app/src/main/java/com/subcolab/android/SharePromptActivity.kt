@@ -22,8 +22,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
@@ -39,6 +42,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +61,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.subcolab.android.model.SubtitleRetranslateOptions
 import com.subcolab.android.model.WhisperLanguages
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.ui.theme.SubcolabColors
 import com.subcolab.android.ui.theme.SubcolabTheme
@@ -65,9 +72,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Compact floating dialog shown directly on top of Dailymotion, Bilibili, browsers, or YouTube when sharing a link.
- * Pre-warms Colab T4 GPU while the user picks the source language and mode:
- * - Watch Now: smooth live video stream + adaptive chunked audio subtitles, auto-opens player
- * - Download: full <=720p MP4 + subtitles saved quietly in background
+ * Pre-warms Colab T4 GPU while the user picks language / subtitle options and Watch Now or Download.
  */
 class SharePromptActivity : ComponentActivity() {
 
@@ -89,31 +94,44 @@ class SharePromptActivity : ComponentActivity() {
         setContent {
             val settings by app.settingsRepository.settings.collectAsState()
             var showWatchNowNotice by remember { mutableStateOf(false) }
+            var queuedNoticePosition by remember { mutableStateOf<Int?>(null) }
 
             SubcolabTheme(themeMode = settings.themeMode) {
-                if (showWatchNowNotice) {
+                val qPos = queuedNoticePosition
+                if (qPos != null) {
+                    LaunchedEffect(qPos) {
+                        delay(2_200L)
+                        finish()
+                    }
+                    QueuedJobNotice(
+                        queuePosition = qPos,
+                        onDismiss = { finish() },
+                    )
+                } else if (showWatchNowNotice) {
                     LaunchedEffect(Unit) {
-                        delay(3_500L)
+                        delay(3_200L)
                         finish()
                     }
                     WatchNowStartedNotice(onDismiss = { finish() })
                 } else {
                     ShareOverlayCard(
-                        cleanUrl = cleanUrl,
                         initialLang = initialLang,
+                        defaultCleanAudio = settings.cleanAudio,
+                        defaultModelId = WhisperModels.normalize(settings.modelId),
                         onCancel = { finish() },
-                        onStart = { selectedLang, workflowMode ->
-                            app.coordinator.startUrlJob(
+                        onStart = { selectedOptions, workflowMode ->
+                            val queuePos = app.coordinator.startUrlJob(
                                 rawUrl = cleanUrl,
-                                sourceLang = selectedLang,
+                                sourceLang = selectedOptions.sourceLang,
                                 workflowMode = workflowMode,
                                 fromExternalShare = true,
                                 reusePreviousCache = false,
+                                subtitleOptions = selectedOptions,
                             )
-                            if (workflowMode == WorkflowMode.WATCH_NOW) {
-                                showWatchNowNotice = true
-                            } else {
-                                finish()
+                            when {
+                                queuePos > 0 -> queuedNoticePosition = queuePos
+                                workflowMode == WorkflowMode.WATCH_NOW -> showWatchNowNotice = true
+                                else -> finish()
                             }
                         },
                     )
@@ -130,6 +148,52 @@ class SharePromptActivity : ComponentActivity() {
             }
             Intent.ACTION_VIEW -> intent.dataString.orEmpty()
             else -> ""
+        }
+    }
+}
+
+@Composable
+private fun QueuedJobNotice(
+    queuePosition: Int,
+    onDismiss: () -> Unit,
+) {
+    Surface(
+        color = SubcolabColors.SurfaceDark,
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, SubcolabColors.GpuCyan.copy(alpha = 0.7f)),
+        modifier = Modifier
+            .widthIn(min = 300.dp, max = 400.dp)
+            .fillMaxWidth()
+            .clickable { onDismiss() },
+    ) {
+        Row(
+            modifier = Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                tint = SubcolabColors.GpuCyan,
+                modifier = Modifier.size(28.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "Added as Queued No. $queuePosition",
+                    color = SubcolabColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    text = "Starts automatically after the current job finishes. A Watch Now / Hide alert will appear when ready.",
+                    color = SubcolabColors.TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+            }
         }
     }
 }
@@ -181,13 +245,28 @@ private fun WatchNowStartedNotice(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ShareOverlayCard(
-    cleanUrl: String,
     initialLang: String,
+    defaultCleanAudio: Boolean,
+    defaultModelId: String,
     onCancel: () -> Unit,
-    onStart: (String, WorkflowMode) -> Unit,
+    onStart: (SubtitleRetranslateOptions, WorkflowMode) -> Unit,
 ) {
     var selectedLang by remember { mutableStateOf(initialLang) }
+    var modelId by remember { mutableStateOf(WhisperModels.normalize(defaultModelId)) }
+    var cleanAudio by remember { mutableStateOf(defaultCleanAudio) }
+    var vocalBoost by remember { mutableStateOf(false) }
+    var highPrecisionBeam by remember { mutableStateOf(false) }
+    var includeOriginal by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
+
+    fun buildOptions(): SubtitleRetranslateOptions = SubtitleRetranslateOptions(
+        sourceLang = selectedLang.ifBlank { "auto" },
+        cleanAudio = cleanAudio,
+        vocalBoost = vocalBoost,
+        includeOriginal = includeOriginal,
+        modelId = WhisperModels.normalize(modelId),
+        beamSize = if (highPrecisionBeam) 8 else 5,
+    )
 
     Surface(
         color = SubcolabColors.SurfaceDark,
@@ -195,12 +274,14 @@ private fun ShareOverlayCard(
         border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
         modifier = Modifier
             .widthIn(min = 310.dp, max = 420.dp)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .heightIn(max = 580.dp),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // 1. App Name
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.ClosedCaption,
@@ -209,102 +290,161 @@ private fun ShareOverlayCard(
                     modifier = Modifier.size(22.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "SUBCOLAB",
-                        color = SubcolabColors.TextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                    )
-                    Text(
-                        text = "Watch Now (live stream) or Download full MP4",
-                        color = SubcolabColors.TextSecondary,
-                        fontSize = 11.sp,
-                    )
-                }
-                TextButton(onClick = onCancel) {
+                Text(
+                    text = "SUBCOLAB",
+                    color = SubcolabColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = onCancel,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                ) {
                     Text("Cancel", color = SubcolabColors.TextSecondary, fontSize = 12.sp)
                 }
             }
 
-            Text(
-                text = cleanUrl,
-                color = SubcolabColors.SkyTextStrong,
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            // Scrollable Language + Subtitle Settings so actions stay pinned & fit on screen
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                // 2. Language
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Language",
+                        color = SubcolabColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                    )
+                    TextButton(
+                        onClick = { showLanguagePicker = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = SubcolabColors.SkyTextStrong,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("All ~99", color = SubcolabColors.SkyTextStrong, fontSize = 12.sp)
+                    }
+                }
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    WhisperLanguages.quickChips.forEach { lang ->
+                        val selected = selectedLang.equals(lang.code, ignoreCase = true)
+                        FilterChip(
+                            selected = selected,
+                            onClick = { selectedLang = lang.code },
+                            label = {
+                                Text(
+                                    text = if (lang.code == "auto") "Auto" else lang.name.substringBefore(" ("),
+                                    fontSize = 11.sp,
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SubcolabColors.SubtitleYellowDark,
+                                selectedLabelColor = SubcolabColors.SubtitleYellow,
+                                containerColor = SubcolabColors.SurfaceElevated,
+                                labelColor = SubcolabColors.TextPrimary,
+                            ),
+                        )
+                    }
+                    if (WhisperLanguages.quickChips.none { it.code.equals(selectedLang, ignoreCase = true) }) {
+                        FilterChip(
+                            selected = true,
+                            onClick = { showLanguagePicker = true },
+                            label = { Text(selectedLang, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SubcolabColors.GpuCyanDark,
+                                selectedLabelColor = SubcolabColors.GpuCyan,
+                            ),
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = SubcolabColors.BorderSubtle.copy(alpha = 0.45f))
+
+                // 3. Subtitle Settings (Whisper Model + Clean Audio + Vocal Boost + High Precision + Original Subs)
                 Text(
-                    text = "Video Language",
+                    text = "Whisper Model",
                     color = SubcolabColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
                 )
-                TextButton(onClick = { showLanguagePicker = true }) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = null,
-                        tint = SubcolabColors.SkyTextStrong,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("All ~99", color = SubcolabColors.SkyTextStrong, fontSize = 12.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WhisperModels.allowed.forEach { (id, label) ->
+                        FilterChip(
+                            selected = modelId == id,
+                            onClick = { modelId = id },
+                            label = { Text(label, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SubcolabColors.GpuCyanDark,
+                                selectedLabelColor = SubcolabColors.GpuCyan,
+                                containerColor = SubcolabColors.SurfaceElevated,
+                                labelColor = SubcolabColors.TextPrimary,
+                            ),
+                        )
+                    }
                 }
-            }
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                WhisperLanguages.quickChips.forEach { lang ->
-                    val selected = selectedLang.equals(lang.code, ignoreCase = true)
-                    FilterChip(
-                        selected = selected,
-                        onClick = { selectedLang = lang.code },
-                        label = {
-                            Text(
-                                text = if (lang.code == "auto") "Auto" else lang.name.substringBefore(" ("),
-                                fontSize = 12.sp,
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = SubcolabColors.SubtitleYellowDark,
-                            selectedLabelColor = SubcolabColors.SubtitleYellow,
-                            containerColor = SubcolabColors.SurfaceElevated,
-                            labelColor = SubcolabColors.TextPrimary,
-                        ),
-                    )
-                }
-                if (WhisperLanguages.quickChips.none { it.code.equals(selectedLang, ignoreCase = true) }) {
-                    FilterChip(
-                        selected = true,
-                        onClick = { showLanguagePicker = true },
-                        label = { Text(selectedLang, fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = SubcolabColors.GpuCyanDark,
-                            selectedLabelColor = SubcolabColors.GpuCyan,
-                        ),
-                    )
-                }
+                ShareOptionSwitchRow(
+                    title = "Clean Audio",
+                    subtitle = "Noise reduction + loudness boost",
+                    checked = cleanAudio,
+                    activeTrackColor = SubcolabColors.GpuCyan,
+                    onCheckedChange = { cleanAudio = it },
+                )
+
+                ShareOptionSwitchRow(
+                    title = "Vocal Boost / Cut Music",
+                    subtitle = "Isolates voice frequencies in songs or BGM",
+                    checked = vocalBoost,
+                    activeTrackColor = SubcolabColors.GpuCyan,
+                    onCheckedChange = { vocalBoost = it },
+                )
+
+                ShareOptionSwitchRow(
+                    title = "High-Precision Beam Search",
+                    subtitle = "Beam width 8 + higher accuracy",
+                    checked = highPrecisionBeam,
+                    activeTrackColor = SubcolabColors.SubtitleYellow,
+                    onCheckedChange = { highPrecisionBeam = it },
+                )
+
+                ShareOptionSwitchRow(
+                    title = "Include Original Subtitles",
+                    subtitle = "Also save original-language captions",
+                    checked = includeOriginal,
+                    activeTrackColor = SubcolabColors.SubtitleYellow,
+                    onCheckedChange = { includeOriginal = it },
+                )
             }
 
             HorizontalDivider(color = SubcolabColors.BorderSubtle.copy(alpha = 0.5f))
 
+            // 4. Download / Watch Now
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OutlinedButton(
-                    onClick = { onStart(selectedLang, WorkflowMode.DOWNLOAD_AND_TRANSLATE) },
+                    onClick = { onStart(buildOptions(), WorkflowMode.DOWNLOAD_AND_TRANSLATE) },
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 48.dp),
+                        .heightIn(min = 46.dp),
                     shape = RoundedCornerShape(14.dp),
                     border = BorderStroke(1.dp, SubcolabColors.SkyAccent.copy(alpha = 0.8f)),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
@@ -327,10 +467,10 @@ private fun ShareOverlayCard(
                     )
                 }
                 Button(
-                    onClick = { onStart(selectedLang, WorkflowMode.WATCH_NOW) },
+                    onClick = { onStart(buildOptions(), WorkflowMode.WATCH_NOW) },
                     modifier = Modifier
                         .weight(1.2f)
-                        .heightIn(min = 48.dp),
+                        .heightIn(min = 46.dp),
                     shape = RoundedCornerShape(14.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -354,13 +494,6 @@ private fun ShareOverlayCard(
                     )
                 }
             }
-
-            Text(
-                text = "Watch Now streams smoothly & auto-opens once initial subs arrive. Download saves full MP4 quietly in background.",
-                color = SubcolabColors.TextSecondary,
-                fontSize = 11.sp,
-                lineHeight = 14.sp,
-            )
         }
     }
 
@@ -431,5 +564,44 @@ private fun ShareOverlayCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ShareOptionSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    activeTrackColor: Color,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = SubcolabColors.TextPrimary,
+            )
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = SubcolabColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = activeTrackColor),
+        )
     }
 }
