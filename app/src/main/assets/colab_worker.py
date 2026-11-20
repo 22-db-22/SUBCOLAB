@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-OpenScribe Android — Remote Colab T4 GPU Worker
+SUBCOLAB Android — Remote Colab T4 GPU Worker
 - Emits BOTH English-translated subtitles AND original-language subtitles
 - Supports advanced accuracy/audio cleanup options for re-translation:
-  OS_CLEAN_AUDIO, OS_VOCAL_BOOST, OS_BEAM_SIZE, OS_INITIAL_PROMPT, OS_MODEL_ID
-- Skips blocked YouTube download on Colab when OS_SKIP_COLAB_YT=True or OS_LOCAL_AUDIO is provided
+  SUBCOLAB_CLEAN_AUDIO, SUBCOLAB_VOCAL_BOOST, SUBCOLAB_BEAM_SIZE, SUBCOLAB_INITIAL_PROMPT, SUBCOLAB_MODEL_ID
+- Skips blocked YouTube download on Colab when SUBCOLAB_SKIP_COLAB_YT=True or SUBCOLAB_LOCAL_AUDIO is provided
 """
 
 import ctypes
@@ -22,35 +22,37 @@ import textwrap
 import threading
 import time
 
-VIDEO_URL        = os.environ.get("OS_VIDEO_URL", "").strip()
-SOURCE_LANG      = os.environ.get("OS_SOURCE_LANG", "auto").strip() or "auto"
-INITIAL_PROMPT   = os.environ.get("OS_INITIAL_PROMPT", "").strip()
-CLEAN_AUDIO      = os.environ.get("OS_CLEAN_AUDIO", "False").lower() == "true"
-VOCAL_BOOST      = os.environ.get("OS_VOCAL_BOOST", "False").lower() == "true"
-BEAM_SIZE        = max(1, min(10, int(os.environ.get("OS_BEAM_SIZE", "5") or "5")))
-MAX_LINE_WIDTH   = int(os.environ.get("OS_MAX_LINE_WIDTH", "42"))
-MAX_LINE_COUNT   = int(os.environ.get("OS_MAX_LINE_COUNT", "2"))
-PLAYER_CLIENT    = os.environ.get("OS_PLAYER_CLIENT", "default").strip() or "default"
-MODEL_ID         = os.environ.get("OS_MODEL_ID", "large-v3").strip() or "large-v3"
-EMIT_ORIGINAL    = os.environ.get("OS_EMIT_ORIGINAL", "False").lower() == "true"
-SKIP_COLAB_YT    = os.environ.get("OS_SKIP_COLAB_YT", "False").lower() == "true"
-STREAMING_QUEUE   = os.environ.get("OS_STREAMING_QUEUE", "False").lower() == "true"
-COLAB_CHUNK_STREAM = os.environ.get("OS_COLAB_CHUNK_STREAM", "False").lower() == "true"
-DOWNLOAD_MP4_ONLY = os.environ.get("OS_DOWNLOAD_MP4_ONLY", "False").lower() == "true"
-MAX_HEIGHT        = max(360, min(1080, int(os.environ.get("OS_MAX_HEIGHT", "720") or "720")))
-CHUNK_SEC         = max(12, min(60, int(os.environ.get("OS_CHUNK_SEC", "20") or "20")))
-JOB_ID            = re.sub(r"[^A-Za-z0-9_-]", "", os.environ.get("OS_JOB_ID", "default").strip()) or "default"
-TOTAL_DUR_HINT    = float(os.environ.get("OS_TOTAL_DURATION_SEC", "0") or "0")
+VIDEO_URL        = os.environ.get("SUBCOLAB_VIDEO_URL", "").strip()
+SOURCE_LANG      = os.environ.get("SUBCOLAB_SOURCE_LANG", "auto").strip() or "auto"
+INITIAL_PROMPT   = os.environ.get("SUBCOLAB_INITIAL_PROMPT", "").strip()
+CLEAN_AUDIO      = os.environ.get("SUBCOLAB_CLEAN_AUDIO", "False").lower() == "true"
+VOCAL_BOOST      = os.environ.get("SUBCOLAB_VOCAL_BOOST", "False").lower() == "true"
+BEAM_SIZE        = max(1, min(10, int(os.environ.get("SUBCOLAB_BEAM_SIZE", "5") or "5")))
+MAX_LINE_WIDTH   = int(os.environ.get("SUBCOLAB_MAX_LINE_WIDTH", "42"))
+MAX_LINE_COUNT   = int(os.environ.get("SUBCOLAB_MAX_LINE_COUNT", "2"))
+PLAYER_CLIENT    = os.environ.get("SUBCOLAB_PLAYER_CLIENT", "default").strip() or "default"
+MODEL_ID         = os.environ.get("SUBCOLAB_MODEL_ID", "large-v3").strip() or "large-v3"
+EMIT_ORIGINAL    = os.environ.get("SUBCOLAB_EMIT_ORIGINAL", "False").lower() == "true"
+SKIP_COLAB_YT    = os.environ.get("SUBCOLAB_SKIP_COLAB_YT", "False").lower() == "true"
+STREAMING_QUEUE   = os.environ.get("SUBCOLAB_STREAMING_QUEUE", "False").lower() == "true"
+COLAB_CHUNK_STREAM = os.environ.get("SUBCOLAB_COLAB_CHUNK_STREAM", "False").lower() == "true"
+DOWNLOAD_MP4_ONLY = os.environ.get("SUBCOLAB_DOWNLOAD_MP4_ONLY", "False").lower() == "true"
+MAX_HEIGHT        = max(360, min(1080, int(os.environ.get("SUBCOLAB_MAX_HEIGHT", "720") or "720")))
+CHUNK_SEC         = max(12, min(60, int(os.environ.get("SUBCOLAB_CHUNK_SEC", "20") or "20")))
+JOB_ID            = re.sub(r"[^A-Za-z0-9_-]", "", os.environ.get("SUBCOLAB_JOB_ID", "default").strip()) or "default"
+TOTAL_DUR_HINT    = float(os.environ.get("SUBCOLAB_TOTAL_DURATION_SEC", "0") or "0")
+RESUME_SEC        = max(0.0, float(os.environ.get("SUBCOLAB_RESUME_SEC", "0") or "0"))
 
-WORKDIR          = "/content/openscribe_job"
-QUEUE_DIR        = f"/content/openscribe_queue_{JOB_ID}"
-COLAB_CHUNKS_DIR = f"/content/openscribe_chunks_{JOB_ID}"
+WORKDIR          = "/content/subcolab_job"
+QUEUE_DIR        = f"/content/subcolab_queue_{JOB_ID}"
+COLAB_CHUNKS_DIR = f"/content/subcolab_chunks_{JOB_ID}"
 MODEL_CACHE      = "/content/whisper_models"
 COOKIES_PATH     = "/content/cookies.txt"
-ABORT_PATH       = "/content/openscribe_abort"
-EXPORT_MP4_PATH  = "/content/openscribe_mp4_export.mp4"
-WORKER_PIDFILE   = "/content/openscribe_worker.pid"
-DEPS_MARKER    = "/content/.openscribe_deps_ok"
+ABORT_PATH       = "/content/subcolab_abort"
+EXPORT_MP4_PATH  = "/content/subcolab_mp4_export.mp4"
+WORKER_PIDFILE   = "/content/subcolab_worker.pid"
+PREFETCH_PIDFILE = "/content/.subcolab_prefetch.pid"
+DEPS_MARKER      = "/content/.subcolab_deps_ok"
 DESKTOP_UA     = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -101,7 +103,7 @@ def emit_line(line: str) -> None:
 
 
 def status(msg: str) -> None:
-    emit_line(f"@@OPENSCRIBE_STATUS@@ {msg}")
+    emit_line(f"@@SUBCOLAB_STATUS@@ {msg}")
 
 
 def abort_requested() -> bool:
@@ -139,16 +141,16 @@ def cleanup_temp_files(
 ) -> None:
     shutil.rmtree(WORKDIR, ignore_errors=True)
     keep_q_abs = os.path.abspath(keep_queue_dir) if keep_queue_dir else ""
-    for q_dir in glob.glob("/content/openscribe_queue_*"):
+    for q_dir in glob.glob("/content/subcolab_queue_*"):
         if keep_q_abs and os.path.abspath(q_dir) == keep_q_abs:
             continue
         shutil.rmtree(q_dir, ignore_errors=True)
     keep_c_abs = os.path.abspath(keep_chunks_dir) if keep_chunks_dir else ""
-    for c_dir in glob.glob("/content/openscribe_chunks_*"):
+    for c_dir in glob.glob("/content/subcolab_chunks_*"):
         if keep_c_abs and os.path.abspath(c_dir) == keep_c_abs:
             continue
         shutil.rmtree(c_dir, ignore_errors=True)
-    for p in ("/content/openscribe_seek.txt", "/content/audio_16k.wav"):
+    for p in ("/content/subcolab_seek.txt", "/content/audio_16k.wav"):
         if os.path.isfile(p):
             try:
                 os.remove(p)
@@ -160,7 +162,7 @@ def cleanup_temp_files(
         except OSError:
             pass
     if not keep_export:
-        for exp_file in glob.glob("/content/openscribe_mp4_export.*"):
+        for exp_file in glob.glob("/content/subcolab_mp4_export.*"):
             if os.path.isfile(exp_file):
                 try:
                     os.remove(exp_file)
@@ -168,9 +170,9 @@ def cleanup_temp_files(
                     pass
     keep_abs = os.path.abspath(keep_audio_path) if keep_audio_path else ""
     for relay_file in (
-        glob.glob("/content/openscribe_relay_*")
-        + glob.glob("/content/openscribe_relay_audio.*")
-        + glob.glob("/content/openscribe_local_*")
+        glob.glob("/content/subcolab_relay_*")
+        + glob.glob("/content/subcolab_relay_audio.*")
+        + glob.glob("/content/subcolab_local_*")
     ):
         if keep_abs and os.path.abspath(relay_file) == keep_abs:
             continue
@@ -233,14 +235,16 @@ def _run_with_progress(cmd, label: str, interval: float = 12.0, shell: bool = Fa
     t_reader = threading.Thread(target=_drain, daemon=True)
     t_reader.start()
 
+    next_report = interval
     while proc.poll() is None:
         if abort_requested():
             proc.kill()
             raise RuntimeError("Job aborted by user during setup.")
         time.sleep(1.0)
         elapsed = time.time() - t_start
-        if elapsed >= interval and int(elapsed) % int(interval) == 0:
+        if elapsed >= next_report:
             status(f"{label} ({elapsed:.0f}s elapsed)...")
+            next_report = elapsed + interval
 
     t_reader.join(timeout=2.0)
     return proc.returncode, "\n".join(output_tail)
@@ -283,11 +287,82 @@ def _ensure_ffmpeg() -> None:
         raise RuntimeError(f"ffmpeg install failed:\n{tail}")
 
 
+def _find_cuda_library_dirs():
+    candidate_roots = list(site.getsitepackages())
+    try:
+        user_site = site.getusersitepackages()
+        if user_site:
+            candidate_roots.append(user_site)
+    except Exception:
+        pass
+
+    search_dirs = []
+    for root in candidate_roots:
+        search_dirs.extend([
+            os.path.join(root, "nvidia", "cublas", "lib"),
+            os.path.join(root, "nvidia", "cudnn", "lib"),
+            os.path.join(root, "torch", "lib"),
+        ])
+    search_dirs.extend([
+        "/usr/local/cuda/lib64",
+        "/usr/local/cuda-12/lib64",
+        "/usr/lib/x86_64-linux-gnu",
+    ])
+    return [d for d in dict.fromkeys(search_dirs) if os.path.isdir(d)]
+
+
+def _has_preinstalled_cuda_libs():
+    has_cublas = False
+    has_cudnn = False
+    for d in _find_cuda_library_dirs():
+        if glob.glob(os.path.join(d, "libcublas.so.12*")):
+            has_cublas = True
+        if glob.glob(os.path.join(d, "libcudnn.so.9*")):
+            has_cudnn = True
+    return has_cublas, has_cudnn
+
+
+def _wait_for_prefetch_if_running(max_wait_sec: float = 150.0) -> None:
+    if not os.path.isfile(PREFETCH_PIDFILE):
+        return
+    try:
+        pid = int(open(PREFETCH_PIDFILE, encoding="utf-8").read().strip())
+    except Exception:
+        pid = -1
+    if pid <= 0 or pid == os.getpid():
+        try:
+            os.remove(PREFETCH_PIDFILE)
+        except OSError:
+            pass
+        return
+
+    t_start = time.time()
+    announced = False
+    while (time.time() - t_start) < max_wait_sec:
+        if abort_requested():
+            return
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        if not announced:
+            announced = True
+            status("Waiting for background Colab model pre-fetch to finish...")
+        time.sleep(1.0)
+
+    try:
+        os.remove(PREFETCH_PIDFILE)
+    except OSError:
+        pass
+
+
 def ensure_packages() -> None:
-    need_ytdlp = COLAB_CHUNK_STREAM or ((not SKIP_COLAB_YT) and (not STREAMING_QUEUE) and (not os.environ.get("OS_LOCAL_AUDIO", "").strip()))
+    _wait_for_prefetch_if_running()
+    need_ytdlp = COLAB_CHUNK_STREAM or ((not SKIP_COLAB_YT) and (not STREAMING_QUEUE) and (not os.environ.get("SUBCOLAB_LOCAL_AUDIO", "").strip()))
     status("Step 1/4: Checking Colab Python packages...")
 
     has_whisper_stack = False
+    has_hf_transfer = False
     try:
         import faster_whisper  # noqa: F401
         import av  # noqa: F401
@@ -296,7 +371,17 @@ def ensure_packages() -> None:
     except Exception:
         has_whisper_stack = False
 
+    try:
+        import hf_transfer  # noqa: F401
+        has_hf_transfer = True
+    except Exception:
+        has_hf_transfer = False
+
     if os.path.isfile(DEPS_MARKER) and has_whisper_stack:
+        if not has_hf_transfer:
+            uv_bin = shutil.which("uv")
+            cmd = [uv_bin, "pip", "install", "--system", "-q", "hf_transfer"] if uv_bin else [sys.executable, "-m", "pip", "install", "-q", "hf_transfer"]
+            subprocess.run(cmd, capture_output=True)
         _ensure_ffmpeg()
         if need_ytdlp:
             _ensure_ytdlp(upgrade=False)
@@ -304,6 +389,10 @@ def ensure_packages() -> None:
         return
 
     if has_whisper_stack and shutil.which("ffmpeg"):
+        if not has_hf_transfer:
+            uv_bin = shutil.which("uv")
+            cmd = [uv_bin, "pip", "install", "--system", "-q", "hf_transfer"] if uv_bin else [sys.executable, "-m", "pip", "install", "-q", "hf_transfer"]
+            subprocess.run(cmd, capture_output=True)
         if need_ytdlp:
             _ensure_ytdlp(upgrade=False)
         try:
@@ -313,14 +402,18 @@ def ensure_packages() -> None:
         status("Step 1/4: Colab packages ready.")
         return
 
+    has_cublas, has_cudnn = _has_preinstalled_cuda_libs()
     status("Step 1/4: Installing faster-whisper & CUDA 12 libraries in Colab...")
     pkgs = [
         "faster-whisper",
         "av<18",
         "ctranslate2",
-        "nvidia-cublas-cu12",
-        "nvidia-cudnn-cu12==9.*",
+        "hf_transfer",
     ]
+    if not has_cublas:
+        pkgs.append("nvidia-cublas-cu12")
+    if not has_cudnn:
+        pkgs.append("nvidia-cudnn-cu12==9.*")
     if need_ytdlp:
         pkgs.append("yt-dlp")
 
@@ -350,19 +443,11 @@ def ensure_packages() -> None:
 
 
 def preload_cuda_libs() -> None:
-    candidate_roots = list(site.getsitepackages())
-    try:
-        user_site = site.getusersitepackages()
-        if user_site:
-            candidate_roots.append(user_site)
-    except Exception:
-        pass
-
     lib_dirs = []
     loaded = {"cublas": False, "cudnn": False}
 
-    for root in candidate_roots:
-        for cublas_file in glob.glob(os.path.join(root, "nvidia", "cublas", "lib", "libcublas.so.12*")):
+    for search_dir in _find_cuda_library_dirs():
+        for cublas_file in glob.glob(os.path.join(search_dir, "libcublas.so.12*")):
             lib_dirs.append(os.path.dirname(cublas_file))
             if not loaded["cublas"] and cublas_file.endswith("libcublas.so.12"):
                 try:
@@ -371,7 +456,7 @@ def preload_cuda_libs() -> None:
                 except OSError:
                     pass
 
-        for cudnn_file in glob.glob(os.path.join(root, "nvidia", "cudnn", "lib", "libcudnn.so.9*")):
+        for cudnn_file in glob.glob(os.path.join(search_dir, "libcudnn.so.9*")):
             lib_dirs.append(os.path.dirname(cudnn_file))
             if not loaded["cudnn"] and cudnn_file.endswith("libcudnn.so.9"):
                 try:
@@ -413,7 +498,7 @@ def _translate_to_english(text: str) -> str:
         return raw
 
 
-def _safe_english_slug(title: str, fallback: str = "OpenScribe_Translated_Video") -> str:
+def _safe_english_slug(title: str, fallback: str = "SUBCOLAB_Translated_Video") -> str:
     import unicodedata
 
     raw = re.sub(r"\s*-\s*(YouTube|Dailymotion)\s*$", "", (title or "").strip(), flags=re.IGNORECASE)
@@ -439,12 +524,12 @@ def _maybe_emit_english_title(raw_text: str, from_cue: bool = False) -> None:
     if from_cue and len(slug.split("_")) < 2 and len(slug) < 8:
         return
     _TITLE_EMITTED = True
-    emit_line(f"@@OPENSCRIBE_TITLE@@ {slug}")
+    emit_line(f"@@SUBCOLAB_TITLE@@ {slug}")
     status(f"English title: {slug}")
 
 
 def _normalize_youtube_url(url: str) -> str:
-    m = re.search(r"youtube\.com/shorts/([A-Za-z0-9_-]{6,})", url)
+    m = re.search(r"youtube\.com/(?:shorts|live)/([A-Za-z0-9_-]{6,})", url)
     if m:
         return f"https://www.youtube.com/watch?v={m.group(1)}"
     return url
@@ -510,7 +595,7 @@ def download_audio(url: str, dest_dir: str):
             "-f", "ba/b/best/worst",
             "-o", os.path.join(dest_dir, "raw_audio.%(ext)s"),
             "--no-simulate",
-            "--print", "before_dl:OPENSCRIBE_META_TITLE:%(title).150s",
+            "--print", "before_dl:SUBCOLAB_META_TITLE:%(title).150s",
             "--print-to-file", "after_move:filepath", marker,
         ]
         if is_youtube and client != "default":
@@ -541,8 +626,8 @@ def download_audio(url: str, dest_dir: str):
             tail_lines.append(line)
             if len(tail_lines) > 25:
                 tail_lines.pop(0)
-            if line.startswith("OPENSCRIBE_META_TITLE:") and not _TITLE_EMITTED:
-                raw_title = line.split("OPENSCRIBE_META_TITLE:", 1)[1]
+            if line.startswith("SUBCOLAB_META_TITLE:") and not _TITLE_EMITTED:
+                raw_title = line.split("SUBCOLAB_META_TITLE:", 1)[1]
                 _maybe_emit_english_title(raw_title, from_cue=False)
             elif "[download]" in line:
                 status(f"yt-dlp: {line}")
@@ -617,7 +702,7 @@ def _download_video_with_ytdlp(url: str, output_mp4: str, max_height: int = 720,
                 "-o", output_mp4,
             ]
             if emit_title:
-                cmd.extend(["--no-simulate", "--print", "before_dl:OPENSCRIBE_META_TITLE:%(title).150s"])
+                cmd.extend(["--no-simulate", "--print", "before_dl:SUBCOLAB_META_TITLE:%(title).150s"])
             if use_desktop and parsed.scheme and parsed.netloc:
                 cmd.extend(["--user-agent", DESKTOP_UA, "--referer", f"{parsed.scheme}://{parsed.netloc}/"])
             if os.path.isfile(COOKIES_PATH):
@@ -641,9 +726,9 @@ def _download_video_with_ytdlp(url: str, output_mp4: str, max_height: int = 720,
                 line = raw_line.strip()
                 if not line:
                     continue
-                if line.startswith("OPENSCRIBE_META_TITLE:"):
+                if line.startswith("SUBCOLAB_META_TITLE:"):
                     if emit_title and not _TITLE_EMITTED:
-                        raw_title = line.split("OPENSCRIBE_META_TITLE:", 1)[1]
+                        raw_title = line.split("SUBCOLAB_META_TITLE:", 1)[1]
                         _maybe_emit_english_title(raw_title, from_cue=False)
                     continue
                 tail_lines.append(line)
@@ -662,7 +747,7 @@ def _download_video_with_ytdlp(url: str, output_mp4: str, max_height: int = 720,
 
 def download_mp4_export(url: str, output_mp4: str, max_height: int = 720) -> str:
     _download_video_with_ytdlp(url, output_mp4, max_height=max_height, emit_title=False)
-    emit_line(f"@@OPENSCRIBE_MP4_READY@@ {output_mp4}")
+    emit_line(f"@@SUBCOLAB_MP4_READY@@ {output_mp4}")
     status("Colab relay MP4 ready for transfer.")
     return output_mp4
 
@@ -908,14 +993,56 @@ def wrap_subtitle(text: str) -> str:
     return "\n".join(lines)
 
 
+_HALLUCINATION_EXACT = {
+    "thank you",
+    "thanks",
+    "thank you very much",
+    "thank you so much",
+    "thanks for watching",
+    "thank you for watching",
+    "please subscribe",
+    "subscribe",
+    "like and subscribe",
+    "please like and subscribe",
+    "see you next time",
+    "bye",
+    "bye bye",
+    "amara.org",
+    "hmm",
+    "uh",
+    "um",
+    "mm-hmm",
+}
+
+_BRACKET_SFX_RE = re.compile(
+    r"[\[(]\s*(?:music|applause|laughter|cheering|silence|inaudible|blank_audio|sighs?|groans?|coughs?|noise|background noise|foreign)\s*[\])]",
+    re.IGNORECASE,
+)
+_HALLUCINATION_CREDITS_RE = re.compile(
+    r"(?:subtitles?|captioned|captioning|transcribed|translated)\s+by\b|amara\.org|www\.\S+\.(?:com|org|net)",
+    re.IGNORECASE,
+)
+
+
 def clean_text(raw_text: str, require_ascii: bool = True) -> str:
     text = re.sub(r"\s+", " ", raw_text or "").strip()
     if not text:
         return ""
     text = re.sub(r"[♪♫]+", "", text).strip()
+    text = _BRACKET_SFX_RE.sub("", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
     if require_ascii and not re.search(r"[A-Za-z0-9]", text):
+        return ""
+    norm = re.sub(r"[.!?,:;\"'~-]+$", "", text.lower()).strip()
+    if norm in _HALLUCINATION_EXACT:
+        return ""
+    if _HALLUCINATION_CREDITS_RE.search(text):
+        return ""
+    words = [re.sub(r"[^\w']", "", w) for w in norm.split()]
+    words = [w for w in words if w]
+    if len(words) >= 6 and len(set(words)) <= 2:
         return ""
     return text
 
@@ -923,8 +1050,8 @@ def clean_text(raw_text: str, require_ascii: bool = True) -> str:
 def emit_srt_block(index: int, start: float, end: float, text: str, is_original: bool = False) -> None:
     wrapped = wrap_subtitle(text)
     start_ms = max(0, int(round(start * 1000)))
-    begin_tag = "@@OPENSCRIBE_ORIG_SRT_BEGIN@@" if is_original else "@@OPENSCRIBE_SRT_BEGIN@@"
-    end_tag = "@@OPENSCRIBE_ORIG_SRT_END@@" if is_original else "@@OPENSCRIBE_SRT_END@@"
+    begin_tag = "@@SUBCOLAB_ORIG_SRT_BEGIN@@" if is_original else "@@SUBCOLAB_SRT_BEGIN@@"
+    end_tag = "@@SUBCOLAB_ORIG_SRT_END@@" if is_original else "@@SUBCOLAB_SRT_END@@"
     with _PRINT_LOCK:
         print(f"{begin_tag} {start_ms}", flush=True)
         print(f"{index}", flush=True)
@@ -991,10 +1118,20 @@ def _build_audio_chunks(audio_arr, sr: int = 16000, target_sec: float = 45.0, fi
     return chunks
 
 
+def _has_cached_model_weights(model_id: str) -> bool:
+    for d in glob.glob(os.path.join(MODEL_CACHE, f"*{model_id}*")):
+        if os.path.isdir(d) and glob.glob(os.path.join(d, "**", "model.bin"), recursive=True):
+            return True
+    return False
+
+
 def _load_faster_whisper_model(device: str, compute_type: str):
+    import importlib.util
     from faster_whisper import WhisperModel
 
-    model_store = globals().setdefault("_OPENSCRIBE_MODEL_CACHE", {})
+    _wait_for_prefetch_if_running()
+
+    model_store = globals().setdefault("_SUBCOLAB_MODEL_CACHE", {})
     cache_key = (MODEL_ID, device, compute_type)
     if cache_key in model_store:
         status(f"Step 4/4: Reusing warm {MODEL_ID} model already in VRAM (0.0s)")
@@ -1011,8 +1148,11 @@ def _load_faster_whisper_model(device: str, compute_type: str):
         except Exception:
             pass
 
-    cached_dirs = glob.glob(os.path.join(MODEL_CACHE, f"*{MODEL_ID}*"))
-    use_local_only = len(cached_dirs) > 0
+    use_local_only = _has_cached_model_weights(MODEL_ID)
+    has_hf_transfer = importlib.util.find_spec("hf_transfer") is not None
+    if has_hf_transfer:
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
     t_load = time.time()
     stop_progress = threading.Event()
 
@@ -1028,7 +1168,7 @@ def _load_faster_whisper_model(device: str, compute_type: str):
         try:
             status(
                 f"Step 4/4: Loading faster-whisper {MODEL_ID} ({device}, {compute_type})"
-                + (" from local Colab cache..." if use_local_only else "...")
+                + (" from local Colab cache..." if use_local_only else (" with hf_transfer..." if has_hf_transfer else "..."))
             )
             model = WhisperModel(
                 MODEL_ID,
@@ -1038,14 +1178,28 @@ def _load_faster_whisper_model(device: str, compute_type: str):
                 local_files_only=use_local_only,
             )
         except Exception:
-            status(f"Step 4/4: Downloading faster-whisper {MODEL_ID} weights (~3 GB) to Colab T4...")
-            model = WhisperModel(
-                MODEL_ID,
-                device=device,
-                compute_type=compute_type,
-                download_root=MODEL_CACHE,
-                local_files_only=False,
-            )
+            speed_note = " (hf_transfer turbo)" if has_hf_transfer else ""
+            status(f"Step 4/4: Downloading faster-whisper {MODEL_ID} weights (~3 GB) to Colab T4{speed_note}...")
+            try:
+                model = WhisperModel(
+                    MODEL_ID,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=MODEL_CACHE,
+                    local_files_only=False,
+                )
+            except Exception:
+                if os.environ.get("HF_HUB_ENABLE_HF_TRANSFER") == "1":
+                    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+                    model = WhisperModel(
+                        MODEL_ID,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=MODEL_CACHE,
+                        local_files_only=False,
+                    )
+                else:
+                    raise
     finally:
         stop_progress.set()
 
@@ -1055,6 +1209,8 @@ def _load_faster_whisper_model(device: str, compute_type: str):
 
 
 def _build_transcribe_runner(model, valid_codes):
+    import numpy as np
+
     lang_arg = normalize_language(SOURCE_LANG, valid_codes=valid_codes)
     state = {
         "lang_arg": lang_arg,
@@ -1062,10 +1218,25 @@ def _build_transcribe_runner(model, valid_codes):
         "reported_meta": False,
         "en_cue_idx": 0,
         "orig_cue_idx": 0,
+        "vad_disabled": False,
     }
     user_prompt = INITIAL_PROMPT or None
 
+    def _call_transcribe(sub_arr, kwargs):
+        try:
+            return model.transcribe(sub_arr, **kwargs)
+        except TypeError:
+            kwargs.pop("repetition_penalty", None)
+            if isinstance(kwargs.get("vad_parameters"), dict):
+                kwargs["vad_parameters"].pop("min_speech_duration_ms", None)
+            return model.transcribe(sub_arr, **kwargs)
+
     def run_chunk_pass(sub_arr, task_name: str, pass_lang, use_vad: bool, c_start: float, c_end: float, total_sec_hint: float = 0.0):
+        chunk_rms = float(np.sqrt(np.mean(sub_arr * sub_arr))) if len(sub_arr) > 0 else 0.0
+        if len(sub_arr) < 800 or chunk_rms < 0.0018:
+            return []
+
+        effective_vad = bool(use_vad and not state["vad_disabled"])
         patience = 1.4 if BEAM_SIZE >= 7 else 1.0
         kwargs = dict(
             language=pass_lang,
@@ -1075,33 +1246,42 @@ def _build_transcribe_runner(model, valid_codes):
             patience=patience,
             temperature=[0.0, 0.2, 0.4],
             compression_ratio_threshold=2.4,
-            log_prob_threshold=-1.2 if use_vad else -1.45,
-            no_speech_threshold=0.72 if use_vad else 0.85,
+            log_prob_threshold=-1.2 if effective_vad else -1.45,
+            no_speech_threshold=0.72 if effective_vad else 0.85,
             condition_on_previous_text=False,
             repetition_penalty=1.05,
             word_timestamps=False,
-            vad_filter=use_vad,
+            vad_filter=effective_vad,
             initial_prompt=user_prompt,
         )
-        if use_vad:
+        if effective_vad:
             kwargs["vad_parameters"] = dict(
-                threshold=0.28,
-                min_silence_duration_ms=450,
+                threshold=0.35,
+                min_silence_duration_ms=500,
+                min_speech_duration_ms=250,
                 max_speech_duration_s=8.0,
                 speech_pad_ms=250,
             )
 
         try:
-            seg_iter, info = model.transcribe(sub_arr, **kwargs)
-        except TypeError:
-            kwargs.pop("repetition_penalty", None)
-            seg_iter, info = model.transcribe(sub_arr, **kwargs)
+            seg_iter, info = _call_transcribe(sub_arr, kwargs)
+        except Exception as vad_exc:
+            if effective_vad:
+                state["vad_disabled"] = True
+                status(f"Silero VAD fallback ({vad_exc.__class__.__name__}) — using built-in silence guard.")
+                kwargs["vad_filter"] = False
+                kwargs.pop("vad_parameters", None)
+                kwargs["log_prob_threshold"] = -1.45
+                kwargs["no_speech_threshold"] = 0.85
+                seg_iter, info = _call_transcribe(sub_arr, kwargs)
+            else:
+                raise
 
         if not state["detected_lang"] and getattr(info, "language", None):
             state["detected_lang"] = str(info.language)
         if not state["reported_meta"]:
             state["reported_meta"] = True
-            emit_line(f"@@OPENSCRIBE_ORIG_LANG@@ {state['detected_lang'] or 'auto'}")
+            emit_line(f"@@SUBCOLAB_ORIG_LANG@@ {state['detected_lang'] or 'auto'}")
             dur_note = f" | Duration: {total_sec_hint / 60:.1f} min" if total_sec_hint > 0 else ""
             status(
                 f"Detected language: {info.language} ({info.language_probability:.0%}){dur_note}"
@@ -1115,7 +1295,8 @@ def _build_transcribe_runner(model, valid_codes):
             if abort_requested():
                 break
 
-            text = clean_text(getattr(seg, "text", ""), require_ascii=(task_name == "translate"))
+            raw_seg_text = getattr(seg, "text", "")
+            text = clean_text(raw_seg_text, require_ascii=(task_name == "translate"))
             if not text:
                 continue
 
@@ -1158,7 +1339,7 @@ def _translate_array_chunks(audio_arr, base_offset_sec: float, model, valid_code
         c_start = base_offset_sec + rel_start
         c_end = base_offset_sec + rel_end
         if min_emit_sec > 0.0 and c_end <= min_emit_sec + 0.25:
-            emit_line(f"@@OPENSCRIBE_CHUNK_END@@ {c_start:.2f} {c_end:.2f}")
+            emit_line(f"@@SUBCOLAB_CHUNK_END@@ {c_start:.2f} {c_end:.2f}")
             continue
 
         if chunk_label_prefix:
@@ -1209,7 +1390,7 @@ def _translate_array_chunks(audio_arr, base_offset_sec: float, model, valid_code
                 state["orig_cue_idx"] += 1
                 emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
 
-        emit_line(f"@@OPENSCRIBE_CHUNK_END@@ {c_start:.2f} {c_end:.2f}")
+        emit_line(f"@@SUBCOLAB_CHUNK_END@@ {c_start:.2f} {c_end:.2f}")
 
 
 def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
@@ -1249,16 +1430,19 @@ def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
         state=state,
         run_chunk_pass=run_chunk_pass,
         total_sec_hint=total_sec,
+        min_emit_sec=RESUME_SEC,
     )
 
     # Pass 2: Original Language Transcript (using cached warm VRAM model & known language)
     if EMIT_ORIGINAL and not abort_requested() and state["detected_lang"] != "en":
         orig_lang_arg = state["lang_arg"] or state["detected_lang"]
-        emit_line(f"@@OPENSCRIBE_ORIG_LANG@@ {orig_lang_arg or 'orig'}")
+        emit_line(f"@@SUBCOLAB_ORIG_LANG@@ {orig_lang_arg or 'orig'}")
         status(f"Transcribing original subtitles ({orig_lang_arg or 'auto'})...")
         for cursor, (c_start, c_end) in enumerate(chunks):
             if abort_requested():
                 break
+            if RESUME_SEC > 0.0 and c_end <= RESUME_SEC + 0.25:
+                continue
             s0 = max(0, int(round(c_start * sr)))
             s1 = min(len(audio_arr), int(round(c_end * sr)))
             sub_arr = audio_arr[s0:s1]
@@ -1277,11 +1461,13 @@ def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
                         orig_cues = retry_orig
 
             for abs_start, abs_end, text in orig_cues:
+                if RESUME_SEC > 0.0 and ((abs_start + abs_end) * 0.5 < RESUME_SEC or abs_end <= RESUME_SEC + 0.25):
+                    continue
                 state["orig_cue_idx"] += 1
-                emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
+                emit_srt_block(state["orig_cue_idx"], max(RESUME_SEC, abs_start) if RESUME_SEC > 0.0 else abs_start, abs_end, text, is_original=True)
 
     if not abort_requested():
-        emit_line("@@OPENSCRIBE_ALL_DONE@@")
+        emit_line("@@SUBCOLAB_ALL_DONE@@")
     return state["en_cue_idx"]
 
 
@@ -1316,8 +1502,8 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
             )
             ts_flag = 1 if use_ts else 0
             for idx, c_start, c_end, c_path in parsed_chunks:
-                emit_line(f"@@OPENSCRIBE_REMOTE_CHUNK@@ {idx}|{c_start:.3f}|{c_end:.3f}|{ts_flag}|{c_path}")
-            emit_line(f"@@OPENSCRIBE_REMOTE_CHUNKS_DONE@@ {len(parsed_chunks)}|{total_dur:.3f}")
+                emit_line(f"@@SUBCOLAB_REMOTE_CHUNK@@ {idx}|{c_start:.3f}|{c_end:.3f}|{ts_flag}|{c_path}")
+            emit_line(f"@@SUBCOLAB_REMOTE_CHUNKS_DONE@@ {len(parsed_chunks)}|{total_dur:.3f}")
             status(f"Colab relay: {len(parsed_chunks)} video chunks ready for background transfer.")
             if abort_requested():
                 return
@@ -1363,15 +1549,18 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
         state=state,
         run_chunk_pass=run_chunk_pass,
         total_sec_hint=total_sec,
+        min_emit_sec=RESUME_SEC,
     )
 
     if EMIT_ORIGINAL and not abort_requested() and state["detected_lang"] != "en":
         orig_lang_arg = state["lang_arg"] or state["detected_lang"]
-        emit_line(f"@@OPENSCRIBE_ORIG_LANG@@ {orig_lang_arg or 'orig'}")
+        emit_line(f"@@SUBCOLAB_ORIG_LANG@@ {orig_lang_arg or 'orig'}")
         status(f"Transcribing original subtitles ({orig_lang_arg or 'auto'})...")
         for cursor, (c_start, c_end) in enumerate(chunks):
             if abort_requested():
                 break
+            if RESUME_SEC > 0.0 and c_end <= RESUME_SEC + 0.25:
+                continue
             s0 = max(0, int(round(c_start * sr)))
             s1 = min(len(audio_arr), int(round(c_end * sr)))
             sub_arr = audio_arr[s0:s1]
@@ -1390,11 +1579,13 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
                         orig_cues = retry_orig
 
             for abs_start, abs_end, text in orig_cues:
+                if RESUME_SEC > 0.0 and ((abs_start + abs_end) * 0.5 < RESUME_SEC or abs_end <= RESUME_SEC + 0.25):
+                    continue
                 state["orig_cue_idx"] += 1
-                emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
+                emit_srt_block(state["orig_cue_idx"], max(RESUME_SEC, abs_start) if RESUME_SEC > 0.0 else abs_start, abs_end, text, is_original=True)
 
     if not abort_requested():
-        emit_line("@@OPENSCRIBE_ALL_DONE@@")
+        emit_line("@@SUBCOLAB_ALL_DONE@@")
     return state["en_cue_idx"]
 
 
@@ -1417,7 +1608,7 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
 
     os.makedirs(QUEUE_DIR, exist_ok=True)
     model = _load_faster_whisper_model(device, compute_type)
-    print("@@OPENSCRIBE_WORKER_READY@@", flush=True)
+    print("@@SUBCOLAB_WORKER_READY@@", flush=True)
     status("Whisper ready on T4 GPU — waiting for audio chunk...")
 
     state, run_chunk_pass = _build_transcribe_runner(model, valid_codes)
@@ -1450,7 +1641,7 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
                 audio_rel = meta.get("audio", "")
                 audio_path = audio_rel if os.path.isabs(audio_rel) else os.path.join(QUEUE_DIR, audio_rel)
                 offset_sec = float(meta.get("offset_sec", 0.0))
-                min_emit_sec = float(meta.get("min_emit_sec", 0.0))
+                min_emit_sec = max(RESUME_SEC, float(meta.get("min_emit_sec", 0.0)))
                 chunk_idx = int(meta.get("index", 0))
                 if not os.path.isfile(audio_path):
                     continue
@@ -1493,7 +1684,7 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
     # Pass 2: Original Language Transcript if requested
     if EMIT_ORIGINAL and not abort_requested() and state["detected_lang"] != "en" and saved_orig_chunks:
         orig_lang_arg = state["lang_arg"] or state["detected_lang"]
-        print(f"@@OPENSCRIBE_ORIG_LANG@@ {orig_lang_arg or 'orig'}", flush=True)
+        print(f"@@SUBCOLAB_ORIG_LANG@@ {orig_lang_arg or 'orig'}", flush=True)
         status(f"Transcribing original subtitles ({orig_lang_arg or 'auto'})...")
         for idx, (wav_path, c_start, c_end) in enumerate(saved_orig_chunks):
             if abort_requested():
@@ -1502,6 +1693,14 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
             orig_cues = run_chunk_pass(
                 audio_arr, task_name="transcribe", pass_lang=orig_lang_arg, use_vad=True, c_start=c_start, c_end=c_end
             )
+            if not abort_requested():
+                chunk_rms = float(np.sqrt(np.mean(audio_arr * audio_arr))) if len(audio_arr) > 0 else 0.0
+                if (c_end - c_start) >= 10.0 and chunk_rms > 0.004 and len(orig_cues) < 2:
+                    retry_orig = run_chunk_pass(
+                        audio_arr, task_name="transcribe", pass_lang=orig_lang_arg, use_vad=False, c_start=c_start, c_end=c_end
+                    )
+                    if len(retry_orig) > len(orig_cues):
+                        orig_cues = retry_orig
             for abs_start, abs_end, text in orig_cues:
                 state["orig_cue_idx"] += 1
                 emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
@@ -1511,17 +1710,17 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
                 pass
 
     if not abort_requested():
-        emit_line("@@OPENSCRIBE_ALL_DONE@@")
+        emit_line("@@SUBCOLAB_ALL_DONE@@")
     return state["en_cue_idx"]
 
 
 def main() -> None:
-    local_audio = os.environ.get("OS_LOCAL_AUDIO", "").strip()
+    local_audio = os.environ.get("SUBCOLAB_LOCAL_AUDIO", "").strip()
     if DOWNLOAD_MP4_ONLY:
         if not VIDEO_URL:
-            raise RuntimeError("OS_VIDEO_URL is required for MP4 relay export.")
+            raise RuntimeError("SUBCOLAB_VIDEO_URL is required for MP4 relay export.")
     elif not VIDEO_URL and not local_audio and not STREAMING_QUEUE:
-        raise RuntimeError("Neither OS_VIDEO_URL nor OS_LOCAL_AUDIO is set.")
+        raise RuntimeError("Neither SUBCOLAB_VIDEO_URL nor SUBCOLAB_LOCAL_AUDIO is set.")
 
     signal.signal(signal.SIGTERM, _handle_exit_signal)
     signal.signal(signal.SIGINT, _handle_exit_signal)
@@ -1535,7 +1734,7 @@ def main() -> None:
         keep_export=False,
     )
 
-    preset_title = os.environ.get("OS_VIDEO_TITLE", "").strip()
+    preset_title = os.environ.get("SUBCOLAB_VIDEO_TITLE", "").strip()
     if preset_title and not DOWNLOAD_MP4_ONLY:
         _maybe_emit_english_title(preset_title, from_cue=False)
 
@@ -1552,7 +1751,7 @@ def main() -> None:
 
     def _heartbeat_loop():
         while not hb_stop.wait(15.0):
-            emit_line("@@OPENSCRIBE_HEARTBEAT@@")
+            emit_line("@@SUBCOLAB_HEARTBEAT@@")
 
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
@@ -1589,7 +1788,7 @@ def main() -> None:
                 status("Job aborted before transcription.")
                 return
             if dl_err == "bot_blocked":
-                emit_line("@@OPENSCRIBE_BOT_BLOCKED@@")
+                emit_line("@@SUBCOLAB_BOT_BLOCKED@@")
                 status("Colab YouTube download skipped/blocked. Using phone audio...")
                 return
 

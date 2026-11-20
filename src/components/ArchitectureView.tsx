@@ -3,27 +3,27 @@ import { Layers, ShieldCheck } from 'lucide-react';
 const MODULES = [
   {
     name: 'Embedded Live Player (dev.jdtech.mpv:libmpv:0.5.1)',
-    path: 'app/src/main/java/com/openscribe/android/player/MpvPlayerController.kt',
+    path: 'app/src/main/java/com/subcolab/android/player/MpvPlayerController.kt',
     summary:
       'Hardware-decoded SurfaceView player streaming smoothly via LoopbackMediaProxy (64MiB cache, 30s readahead, split DASH audio-add) on cinema-black with yellow subtitles, gestures, fullscreen, and PiP.',
   },
   {
     name: 'Live Proxy & Adaptive Audio Chunker (youtubedl-android:0.18.1)',
-    path: 'app/src/main/java/com/openscribe/android/media/StreamExtractor.kt',
+    path: 'app/src/main/java/com/subcolab/android/media/StreamExtractor.kt',
     summary:
       'Resolves direct video + audio streams across 1,500+ yt-dlp sites (Dailymotion, Bilibili, Vimeo, Twitch, TikTok, NicoNico, and YouTube), serves them over OkHttp LoopbackMediaProxy (Range + HLS M3U8), and slices ONLY audio (15s–60s adaptive 24kbps AAC).',
   },
   {
     name: 'Colab OAuth2 & Streaming Queue (google-colab-cli)',
-    path: 'app/src/main/java/com/openscribe/android/colab/ColabClient.kt',
+    path: 'app/src/main/java/com/subcolab/android/colab/ColabClient.kt',
     summary:
-      'EncryptedSharedPreferences OAuth2, T4 /tun/m/assign XSRF warmup, instant tiny audio-chunk uploads to /content/openscribe_queue_<id>, WebSocket streaming cues, and auto-recover.',
+      'EncryptedSharedPreferences OAuth2, single-flight T4 pre-warming & runtime adoption, instant tiny audio-chunk uploads to /content/subcolab_queue_<id>, WebSocket streaming cues, and auto-recover.',
   },
   {
     name: 'Share Dialog & Auto-Open Over Other Apps',
-    path: 'app/src/main/java/com/openscribe/android/SharePromptActivity.kt',
+    path: 'app/src/main/java/com/subcolab/android/SharePromptActivity.kt',
     summary:
-      'Floating overlay offers Watch Now (smooth live stream + auto-open over Dailymotion, Bilibili, browsers, or YouTube via SYSTEM_ALERT_WINDOW / full-screen intent) and Download (full regular <=720p MP4 quietly in background).',
+      'Floating overlay pre-warms T4 on open and offers Watch Now (smooth live stream + auto-open over Dailymotion, Bilibili, browsers, or YouTube via SYSTEM_ALERT_WINDOW / full-screen intent) and Download (full regular <=720p MP4 quietly in background).',
   },
 ];
 
@@ -133,8 +133,8 @@ export function ArchitectureView({ isDark = false }: { isDark?: boolean }) {
                 large-v3
               </code>{' '}
               CUDA preload,{' '}
-              <code className={isDark ? 'text-white' : 'text-[#1C2621]'}>CLEAN_AUDIO</code> toggle,
-              and 20s heartbeats.
+              <code className={isDark ? 'text-white' : 'text-[#1C2621]'}>SUBCOLAB_CLEAN_AUDIO</code>{' '}
+              toggle, and 20s heartbeats.
             </p>
           </div>
         </div>

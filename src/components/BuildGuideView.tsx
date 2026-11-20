@@ -9,8 +9,8 @@ const STEPS = [
   },
   {
     icon: CloudDownload,
-    title: '2. Download SUBCOLAB-v1.0-arm64.apk from Releases or Actions',
-    body: 'Install SUBCOLAB-v1.0-arm64.apk from GitHub Releases (or the Actions workflow artifact) on any Android 8.0+ 64-bit phone.',
+    title: '2. Download SUBCOLAB-v1.0-arm64-v8a-debug.apk from Actions or Releases',
+    body: 'Install SUBCOLAB-v1.0-arm64-v8a-debug.apk from the GitHub Actions SUBCOLAB-Android-APKs artifact (or GitHub Releases) on any Android 8.0+ 64-bit phone.',
     code: '.github/workflows/build-apk.yml',
   },
   {

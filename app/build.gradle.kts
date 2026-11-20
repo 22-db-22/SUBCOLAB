@@ -5,12 +5,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+base {
+    archivesName.set("SUBCOLAB-v1.0")
+}
+
 android {
-    namespace = "com.openscribe.android"
+    namespace = "com.subcolab.android"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.openscribe.android"
+        applicationId = "com.subcolab.android"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

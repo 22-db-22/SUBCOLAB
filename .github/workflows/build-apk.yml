@@ -1,4 +1,4 @@
-name: Build OpenScribe Android APK
+name: Build SUBCOLAB Android APK
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-apk:
-    name: Test & Build Android APK
+    name: Test & Build SUBCOLAB Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -38,13 +38,13 @@ jobs:
       - name: Run Kotlin Unit Tests
         run: gradle testDebugUnitTest --no-daemon
 
-      - name: Build Debug APKs (arm64-v8a & Universal)
+      - name: Build SUBCOLAB Debug APK (arm64-v8a)
         run: gradle assembleDebug --no-daemon
 
-      - name: Upload OpenScribe APKs
+      - name: Upload SUBCOLAB APKs
         uses: actions/upload-artifact@v4
         with:
-          name: OpenScribe-Android-APKs
+          name: SUBCOLAB-Android-APKs
           path: |
             app/build/outputs/apk/debug/*.apk
           retention-days: 30

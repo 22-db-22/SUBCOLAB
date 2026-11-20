@@ -15,7 +15,7 @@
         android:maxSdkVersion="28" />
 
     <application
-        android:name=".OpenScribeApp"
+        android:name=".SubcolabApp"
         android:allowBackup="true"
         android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
@@ -23,7 +23,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.OpenScribe">
+        android:theme="@style/Theme.Subcolab">
 
         <activity
             android:name=".MainActivity"
@@ -37,14 +37,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Compact floating overlay shown over YouTube/browser on Share -> OpenScribe -->
+        <!-- Compact floating overlay shown over YouTube/browser on Share -> SUBCOLAB -->
         <activity
             android:name=".SharePromptActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:excludeFromRecents="true"
             android:exported="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.OpenScribe.TranslucentDialog">
+            android:theme="@style/Theme.Subcolab.TranslucentDialog">
 
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -64,7 +64,7 @@
         </activity>
 
         <service
-            android:name=".service.OpenScribeForegroundService"
+            android:name=".service.SubcolabForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaPlayback" />
 

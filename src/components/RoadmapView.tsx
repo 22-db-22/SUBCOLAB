@@ -53,7 +53,7 @@ const UPGRADES: UpgradeItem[] = [
       'Track seen media sequence numbers inside LoopbackMediaProxy so ffmpeg appends newly published audio segments without restarting.',
       'Emit rolling WebSocket subtitle cues tagged with live program-date-time offsets into libmpv sub-reload.',
     ],
-    targetComponents: 'LoopbackMediaProxy · OpenScribeCoordinator',
+    targetComponents: 'LoopbackMediaProxy · SubcolabCoordinator',
   },
   {
     id: 'webview-sniffer',

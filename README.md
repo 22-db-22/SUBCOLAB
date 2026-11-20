@@ -36,8 +36,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 
 > [!TIP]
 > You can also paste links wrapped in Google, Instagram, or Facebook redirect URLs (`google.com/goto?url=...`, `l.instagram.com`, etc.)—SUBCOLAB unwraps them automatically.
->
-> ## First-time / fresh session: "Confirming Colab T4 GPU allocation" can take a moment. If it stalls, cancel the job and start again 2–3 times, or tap "Run Previous" until you see "Reusing warm Colab T4 GPU runtime".
+> **Automatic Colab T4 Pre-Warming:** SUBCOLAB begins warming your Colab T4 GPU right after Google sign-in and whenever the share overlay opens, while automatically adopting slow-booting runtimes and reusing warm sessions for near-instant subsequent starts.
 ----
 ## ScreenShots
 <p align="center">
@@ -98,7 +97,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 
 ## Download & Quick Start
 
-1. Download **`SUBCOLAB-v1.0-arm64.apk`** from **[GitHub Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
+1. Download **`SUBCOLAB-v1.0-arm64-v8a-debug.apk`** from **[GitHub Actions](https://github.com/22-db-22/SUBCOLAB/actions)** or **[GitHub Releases](https://github.com/22-db-22/SUBCOLAB/releases)** *(Android 8.0+, 64-bit `arm64-v8a`)*.
 2. Tap the `.apk` to install *(allow **Install unknown apps** if prompted)*.
 3. Open **SUBCOLAB**, grant **Notifications** *(and **Display over other apps** if you want Watch Now to auto-open over source apps)*.
 4. Go to **Settings → Sign in with Google** to authorize your own Google Colab session *(one-time setup)*.

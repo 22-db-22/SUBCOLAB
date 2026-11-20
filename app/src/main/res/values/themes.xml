@@ -1,12 +1,12 @@
 <resources>
-    <style name="Theme.OpenScribe" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Subcolab" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">#1E222A</item>
         <item name="android:navigationBarColor">#1E222A</item>
         <item name="android:windowBackground">#1E222A</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
 
-    <style name="Theme.OpenScribe.TranslucentDialog" parent="android:Theme.Material.Light.Dialog.NoActionBar">
+    <style name="Theme.Subcolab.TranslucentDialog" parent="android:Theme.Material.Light.Dialog.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
