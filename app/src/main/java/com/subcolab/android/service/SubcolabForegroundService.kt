@@ -20,11 +20,13 @@ import com.subcolab.android.util.AppLogger
 class ReadyDismissReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val app = context.applicationContext as? SubcolabApp
-        if (intent?.action == SubcolabForegroundService.ACTION_HIDE_QUEUED) {
+        if (intent?.action == SubcolabForegroundService.ACTION_CANCEL_QUEUED ||
+            intent?.action == SubcolabForegroundService.ACTION_HIDE_QUEUED
+        ) {
             val queueId = intent.getStringExtra(SubcolabForegroundService.EXTRA_QUEUE_ID).orEmpty()
             if (queueId.isNotBlank()) {
                 SubcolabForegroundService.cancelQueuedNotification(context, queueId)
-                app?.coordinator?.hideQueuedReadyOffer(queueId)
+                app?.coordinator?.cancelQueuedReadyOffer(queueId)
             }
             return
         }
@@ -41,6 +43,7 @@ class SubcolabForegroundService : Service() {
         const val ACTION_CANCEL_JOB = "com.subcolab.android.action.CANCEL_JOB"
         const val ACTION_STOP_GPU = "com.subcolab.android.action.STOP_GPU"
         const val ACTION_DISMISS_READY = "com.subcolab.android.action.DISMISS_READY"
+        const val ACTION_CANCEL_QUEUED = "com.subcolab.android.action.CANCEL_QUEUED"
         const val ACTION_HIDE_QUEUED = "com.subcolab.android.action.HIDE_QUEUED"
         const val EXTRA_QUEUE_ID = "com.subcolab.android.extra.QUEUE_ID"
         private const val NOTIFICATION_PROGRESS_ID = 1001
@@ -310,11 +313,11 @@ class SubcolabForegroundService : Service() {
             MainActivity.createSwitchToQueuedIntent(this, queueId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val hidePending = PendingIntent.getBroadcast(
+        val cancelQueuedPending = PendingIntent.getBroadcast(
             this,
             baseReq + 1,
             Intent(this, ReadyDismissReceiver::class.java).apply {
-                action = ACTION_HIDE_QUEUED
+                action = ACTION_CANCEL_QUEUED
                 putExtra(EXTRA_QUEUE_ID, queueId)
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
@@ -323,9 +326,9 @@ class SubcolabForegroundService : Service() {
         val cleanTitle = titleSlug.replace('_', ' ')
         val titleText = "Queued video open to Watch Now ($cueCount cues)"
         val bodyText = when {
-            isComplete -> "$cleanTitle — Ready. Tap Watch Now to switch, or Hide to keep watching current video."
-            isLiveStream -> "$cleanTitle — Live stream ready ($cueCount cues). Tap Watch Now to switch, or Hide to keep translating in background."
-            else -> "$cleanTitle — Ready ($cueCount cues). Tap Watch Now to switch or Hide."
+            isComplete -> "$cleanTitle — Ready. Tap Watch Now to switch, or Cancel Job to cancel and start next queued video."
+            isLiveStream -> "$cleanTitle — Live stream ready ($cueCount cues). Tap Watch Now to switch, or Cancel Job to cancel and start next queued video."
+            else -> "$cleanTitle — Ready ($cueCount cues). Tap Watch Now to switch or Cancel Job."
         }
         val builder = NotificationCompat.Builder(this, SubcolabApp.CHANNEL_READY_ID)
             .setSmallIcon(R.drawable.ic_stat_subcolab)
@@ -337,7 +340,7 @@ class SubcolabForegroundService : Service() {
             .setAutoCancel(true)
             .setContentIntent(watchNowPending)
             .addAction(0, "Watch Now", watchNowPending)
-            .addAction(0, "Hide", hidePending)
+            .addAction(0, "Cancel Job", cancelQueuedPending)
 
         notificationManager.notify(notifId, builder.build())
     }

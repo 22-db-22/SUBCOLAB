@@ -273,6 +273,7 @@ class MainActivity : ComponentActivity() {
                                         }
                                     },
                                     onDeleteSavedPack = viewModel::deletePackPermanently,
+                                    onEnsurePackThumbnail = viewModel::ensurePackThumbnail,
                                     onOpenSettings = {
                                         currentRoute = "settings"
                                         navController.navigate("settings") { launchSingleTop = true }
@@ -290,8 +291,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     },
-                                    onHideQueuedOffer = { queueId ->
-                                        viewModel.hideQueuedOffer(this@MainActivity, queueId)
+                                    onCancelQueuedOffer = { queueId ->
+                                        viewModel.cancelQueuedOffer(this@MainActivity, queueId)
                                     },
                                 )
                             }
@@ -320,8 +321,8 @@ class MainActivity : ComponentActivity() {
                                     onSwitchToQueuedOffer = { queueId ->
                                         viewModel.switchToQueuedOffer(this@MainActivity, queueId)
                                     },
-                                    onHideQueuedOffer = { queueId ->
-                                        viewModel.hideQueuedOffer(this@MainActivity, queueId)
+                                    onCancelQueuedOffer = { queueId ->
+                                        viewModel.cancelQueuedOffer(this@MainActivity, queueId)
                                     },
                                     onBack = {
                                         currentRoute = "home"

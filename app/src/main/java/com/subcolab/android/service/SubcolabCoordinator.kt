@@ -30,6 +30,7 @@ import com.subcolab.android.util.AppLogger
 import com.subcolab.android.util.MediaStoreSaver
 import com.subcolab.android.util.SavedMediaResult
 import com.subcolab.android.util.SubtitleManager
+import com.subcolab.android.util.ThumbnailHelper
 import com.subcolab.android.util.UrlUnwrapper
 import com.subcolab.android.util.WorkerEvent
 import kotlinx.coroutines.CancellationException
@@ -463,7 +464,7 @@ class SubcolabCoordinator(
         val restoredOrigSrtPath = origFile.takeIf { it.exists() && it.length() > 0L }?.absolutePath
             ?: saved.liveOrigSrtPath?.takeIf { File(it).exists() }
 
-        val cleanedPacks = saved.savedPacks.filter { it.hasVideo || it.hasSubtitles }
+        val cleanedPacks = saved.savedPacks.filter { it.hasVideo || it.hasSubtitles || it.isCancelled }
         val hasRestorableJob = saved.currentUrl.isNotBlank() || saved.previousJob != null
         mutateState {
             it.copy(
@@ -746,21 +747,115 @@ class SubcolabCoordinator(
     }
 
     fun removeQueuedJob(queueId: String) {
+        var removedItem: QueuedJobItem? = null
         synchronized(queueLock) {
             mutateState { st ->
+                removedItem = st.queuedJobs.firstOrNull { it.queueId == queueId }
                 st.copy(queuedJobs = st.queuedJobs.filterNot { it.queueId == queueId })
             }
         }
+        removedItem?.let { item ->
+            preserveQueuedItemAsCancelledPack(item)
+            persistSession()
+        }
     }
 
-    fun hideQueuedReadyOffer(queueId: String) {
+    fun cancelQueuedReadyOffer(queueId: String) {
+        val st = _state.value
+        val matchingOffer = st.readyQueuedOffers.firstOrNull { it.queueId == queueId }
+        val isTargetCurrentlyActive = st.activeJobQueueId == queueId && hasActiveJob()
+
         dismissedOfferQueueIds.add(queueId)
-        mutateState { st ->
-            st.copy(readyQueuedOffers = st.readyQueuedOffers.filterNot { it.queueId == queueId })
+        mutateState { cur ->
+            cur.copy(readyQueuedOffers = cur.readyQueuedOffers.filterNot { it.queueId == queueId })
         }
-        if (_state.value.activeJobQueueId != queueId) {
-            synchronized(liveProxyLock) {
-                offerProxies.remove(queueId)?.let { runCatching { it.close() } }
+        runCatching { offerEnSrtFile(queueId).delete() }
+        runCatching { offerOrigSrtFile(queueId).delete() }
+        synchronized(liveProxyLock) {
+            offerProxies.remove(queueId)?.let { runCatching { it.close() } }
+        }
+
+        if (isTargetCurrentlyActive) {
+            AppLogger.i(TAG, "Cancelling active queued job $queueId and starting next in queue")
+            preserveActiveJobPackAsCancelled(
+                overridePackId = matchingOffer?.packId,
+                overrideTitle = matchingOffer?.titleSlug,
+            )
+            val cancelledToken = activeJobToken.incrementAndGet()
+            streamExtractor.cancelProcess("resolve_stream")
+            streamExtractor.cancelProcess("relay_audio")
+            streamExtractor.cancelProcess("save_mp4")
+            activeJob?.cancel()
+            activeJob = null
+            closeLiveStreamProxy()
+
+            val hasNextQueued = _state.value.queuedJobs.isNotEmpty()
+            mutateState { cur ->
+                val cleanedVideo = cur.playableVideoSource?.takeUnless { src -> src.startsWith("http") }
+                cur.copy(
+                    phase = JobPhase.CANCELLED,
+                    statusMessage = if (hasNextQueued) {
+                        "Queued job cancelled — starting next..."
+                    } else {
+                        "Queued job cancelled (T4 GPU kept warm)"
+                    },
+                    detailMessage = cur.currentUrl,
+                    translationProgressText = null,
+                    activePackId = null,
+                    activeJobQueueId = null,
+                    isActiveJobQueued = false,
+                    playableVideoSource = cleanedVideo,
+                    playableAudioSource = null,
+                    isLiveStreaming = false,
+                    playableChunks = emptyList(),
+                    isStitching = false,
+                    isChunkDownloadComplete = false,
+                    chunkDownloadStatus = null,
+                    isPlayerReady = false,
+                    isReadyPromptVisible = false,
+                )
+            }
+            persistSession(wasCompletedOverride = false)
+            if (!hasNextQueued) {
+                notificationCallback?.invoke(
+                    "SUBCOLAB — T4 Warm",
+                    "Queued job cancelled. Colab T4 GPU is ready for your next video.",
+                    false,
+                )
+            }
+
+            val s = settingsRepo.settings.value
+            scope.launch {
+                colabClient.sendAbortSignal(
+                    useCustomTunnel = s.useCustomTunnel,
+                    customTunnelUrl = s.customTunnelUrl,
+                    customTunnelToken = s.customTunnelToken,
+                )
+                if (hasNextQueued) {
+                    startNextQueuedJobIfAny(cancelledToken, null)
+                }
+            }
+        } else {
+            AppLogger.i(TAG, "Cancelling queued ready offer $queueId (already finished or background)")
+            if (matchingOffer != null && st.savedPacks.none { it.effectiveId == matchingOffer.packId }) {
+                val packId = matchingOffer.packId.ifBlank { queueId }
+                val cleanSlug = matchingOffer.titleSlug.ifBlank { "SUBCOLAB_Video" }
+                val pack = SavedPack(
+                    id = packId,
+                    titleSlug = cleanSlug,
+                    folderName = MediaStoreSaver.buildShortFolderName(cleanSlug),
+                    sourceUrl = st.currentUrl.takeIf { UrlUnwrapper.isValidVideoUrl(it) } ?: matchingOffer.playableVideoSource,
+                    sourceLang = st.sourceLang.ifBlank { "auto" },
+                    thumbnailPath = ThumbnailHelper.thumbPathIfExists(appContext, packId, null),
+                    isCancelled = true,
+                    createdAtMs = System.currentTimeMillis(),
+                )
+                upsertSavedPack(pack)
+                persistSession()
+                ensurePackThumbnail(pack.effectiveId)
+            }
+            if (!hasActiveJob() && _state.value.queuedJobs.isNotEmpty()) {
+                startNextQueuedJobIfAny(activeJobToken.get(), null)
             }
         }
     }
@@ -1042,6 +1137,7 @@ class SubcolabCoordinator(
             MediaStoreSaver.deleteSubfolderIfEmpty(pack.effectiveFolder)
 
             pack.internalVideoPath?.let { runCatching { File(it).delete() } }
+            ThumbnailHelper.deleteThumbnail(appContext, packId, pack.thumbnailPath)
             runCatching { packDir(packId).deleteRecursively() }
         }
 
@@ -1157,6 +1253,7 @@ class SubcolabCoordinator(
     }
 
     fun cancelCurrentJob() {
+        preserveActiveJobPackAsCancelled()
         val cancelledToken = activeJobToken.incrementAndGet()
         streamExtractor.cancelProcess("resolve_stream")
         streamExtractor.cancelProcess("relay_audio")
@@ -1313,6 +1410,143 @@ class SubcolabCoordinator(
             }
             current.copy(savedPacks = listOf(updatedPack) + filtered)
         }
+    }
+
+    private fun updatePackThumbnailInPlace(packId: String, thumbPath: String) {
+        if (thumbPath.isBlank()) return
+        var updated = false
+        mutateState { current ->
+            current.copy(
+                savedPacks = current.savedPacks.map { pack ->
+                    if (pack.effectiveId == packId && pack.thumbnailPath != thumbPath) {
+                        updated = true
+                        pack.copy(thumbnailPath = thumbPath)
+                    } else {
+                        pack
+                    }
+                },
+            )
+        }
+        if (updated) {
+            persistSession()
+        }
+    }
+
+    fun ensurePackThumbnail(packId: String) {
+        val pack = _state.value.savedPacks.firstOrNull { it.effectiveId == packId } ?: return
+        val existingThumb = ThumbnailHelper.thumbPathIfExists(appContext, packId, pack.thumbnailPath)
+        if (existingThumb != null) {
+            if (pack.thumbnailPath != existingThumb) {
+                updatePackThumbnailInPlace(packId, existingThumb)
+            }
+            return
+        }
+        scope.launch {
+            val resolved = ThumbnailHelper.resolveOrCreateThumbnail(
+                context = appContext,
+                packId = packId,
+                storedPath = pack.thumbnailPath,
+                thumbnailUrl = pack.thumbnailUrl,
+                sourceUrl = pack.sourceUrl,
+                isLocalVideo = pack.isLocalVideo,
+                mp4UriString = pack.mp4UriString,
+                internalVideoPath = pack.internalVideoPath,
+            )
+            if (!resolved.isNullOrBlank()) {
+                updatePackThumbnailInPlace(packId, resolved)
+            }
+        }
+    }
+
+    private suspend fun cachePackThumbnailAsync(
+        packId: String,
+        thumbnailUrl: String?,
+        sourceUrl: String,
+        mp4UriString: String?,
+        internalVideoPath: String?,
+        isLocalVideo: Boolean = false,
+    ) {
+        val resolved = ThumbnailHelper.resolveOrCreateThumbnail(
+            context = appContext,
+            packId = packId,
+            thumbnailUrl = thumbnailUrl,
+            sourceUrl = sourceUrl,
+            isLocalVideo = isLocalVideo,
+            mp4UriString = mp4UriString,
+            internalVideoPath = internalVideoPath,
+        )
+        if (!resolved.isNullOrBlank()) {
+            updatePackThumbnailInPlace(packId, resolved)
+        }
+    }
+
+    private fun preserveActiveJobPackAsCancelled(
+        overridePackId: String? = null,
+        overrideTitle: String? = null,
+    ) {
+        val cur = _state.value
+        val isLocal = cur.mode == WorkflowMode.LOCAL_VIDEO_SUBTITLES
+        val url = cur.currentUrl.ifBlank { cur.previousJob?.normalizedUrl.orEmpty() }
+        if (url.isBlank()) return
+        if (!isLocal && !UrlUnwrapper.isValidVideoUrl(url)) return
+
+        val existing = cur.savedPacks.firstOrNull { pack ->
+            (!overridePackId.isNullOrBlank() && pack.effectiveId == overridePackId) ||
+                (!cur.activePackId.isNullOrBlank() && pack.effectiveId == cur.activePackId) ||
+                (pack.isLocalVideo == isLocal && pack.sourceUrl == url)
+        }
+        val packId = existing?.effectiveId
+            ?: cur.activePackId?.takeIf { it.isNotBlank() }
+            ?: overridePackId?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString().take(12)
+        val slug = overrideTitle?.takeIf { it.isNotBlank() }
+            ?: cur.titleSlug.takeIf { it.isNotBlank() }
+            ?: existing?.titleSlug
+            ?: "SUBCOLAB_Video_${packId.take(4)}"
+        val folder = existing?.effectiveFolder ?: MediaStoreSaver.buildShortFolderName(slug)
+        val cachedStreamThumb = lastResolvedStreamPair?.takeIf { it.first == url }?.second?.thumbnailUrl
+        val resolvedThumb = ThumbnailHelper.thumbPathIfExists(appContext, packId, existing?.thumbnailPath)
+
+        val cancelledPack = (existing ?: SavedPack(
+            id = packId,
+            titleSlug = slug,
+            folderName = folder,
+            sourceUrl = url,
+            sourceLang = cur.sourceLang.ifBlank { "auto" },
+            isLocalVideo = isLocal,
+            createdAtMs = System.currentTimeMillis(),
+        )).copy(
+            titleSlug = slug,
+            folderName = folder,
+            thumbnailUrl = existing?.thumbnailUrl ?: cachedStreamThumb,
+            thumbnailPath = resolvedThumb ?: existing?.thumbnailPath,
+            isCancelled = true,
+        )
+        upsertSavedPack(cancelledPack)
+        ensurePackThumbnail(packId)
+    }
+
+    private fun preserveQueuedItemAsCancelledPack(item: QueuedJobItem) {
+        val url = item.normalizedUrl
+        if (!UrlUnwrapper.isValidVideoUrl(url)) return
+        val existing = _state.value.savedPacks.firstOrNull { !it.isLocalVideo && it.sourceUrl == url }
+        val packId = existing?.effectiveId ?: "q_${item.queueId}"
+        val slug = item.titleSlug.ifBlank { existing?.titleSlug ?: "SUBCOLAB_Video" }
+        val folder = existing?.effectiveFolder ?: MediaStoreSaver.buildShortFolderName(slug)
+        val cancelledPack = (existing ?: SavedPack(
+            id = packId,
+            titleSlug = slug,
+            folderName = folder,
+            sourceUrl = url,
+            sourceLang = item.sourceLang.ifBlank { "auto" },
+            createdAtMs = System.currentTimeMillis(),
+        )).copy(
+            titleSlug = slug,
+            folderName = folder,
+            isCancelled = true,
+        )
+        upsertSavedPack(cancelledPack)
+        ensurePackThumbnail(packId)
     }
 
     private fun saveSubtitlesToDownloads(
@@ -1685,6 +1919,16 @@ class SubcolabCoordinator(
                 if (resolvedStream != null) {
                     lastResolvedStreamPair = cleanUrl to resolvedStream
                 }
+                val resolvedThumbUrl = resolvedStream?.thumbnailUrl ?: existingPack?.thumbnailUrl
+                scope.launch {
+                    cachePackThumbnailAsync(
+                        packId = packId,
+                        thumbnailUrl = resolvedThumbUrl,
+                        sourceUrl = cleanUrl,
+                        mp4UriString = cachedPlayableSource?.takeIf { it.startsWith("content://") },
+                        internalVideoPath = cachedPlayableSource?.takeUnless { it.startsWith("http") || it.startsWith("content://") },
+                    )
+                }
 
                 var resolvedTitleHint: String? = resolvedStream?.title
                 if (resolvedTitleHint.isNullOrBlank()) {
@@ -1725,6 +1969,14 @@ class SubcolabCoordinator(
                 suspend fun saveCompletedMp4ToPack(mp4File: File): String {
                     val resolvedSlug = _state.value.titleSlug.ifBlank { "SUBCOLAB_Translated_Video" }
                     val folder = existingPack?.effectiveFolder ?: MediaStoreSaver.buildShortFolderName(resolvedSlug)
+                    val preCachedThumb = ThumbnailHelper.resolveOrCreateThumbnail(
+                        context = appContext,
+                        packId = packId,
+                        storedPath = existingPack?.thumbnailPath,
+                        thumbnailUrl = resolvedThumbUrl,
+                        sourceUrl = cleanUrl,
+                        internalVideoPath = mp4File.takeIf { it.exists() }?.absolutePath,
+                    )
                     savedMp4Result = MediaStoreSaver.saveBinaryFile(
                         appContext, mp4File, "${folder}.mp4", "video/mp4", subfolder = folder,
                     )
@@ -1751,6 +2003,9 @@ class SubcolabCoordinator(
                         mp4UriString = savedMp4Result?.uriString,
                         internalVideoPath = internalVideoFallbackPath,
                         videoResolution = 720,
+                        thumbnailUrl = resolvedThumbUrl,
+                        thumbnailPath = preCachedThumb ?: existingPack?.thumbnailPath,
+                        isCancelled = false,
                     )
                     upsertSavedPack(intermediatePack)
                     mutateState {
@@ -2478,9 +2733,13 @@ class SubcolabCoordinator(
                     internalEnSrtPath = subBundle.internalEnSrtPath,
                     internalOrigSrtPath = subBundle.internalOrigSrtPath,
                     internalVideoPath = internalVideoFallbackPath ?: latestExisting?.internalVideoPath,
+                    thumbnailUrl = resolvedThumbUrl ?: latestExisting?.thumbnailUrl,
+                    thumbnailPath = ThumbnailHelper.thumbPathIfExists(appContext, packId, latestExisting?.thumbnailPath),
+                    isCancelled = false,
                     createdAtMs = System.currentTimeMillis(),
                 )
                 upsertSavedPack(finalPack)
+                ensurePackThumbnail(finalPack.effectiveId)
 
                 val shouldPromptOrNotify = promptedReadyForJobToken != jobToken
                 promptedReadyForJobToken = jobToken
@@ -2617,9 +2876,12 @@ class SubcolabCoordinator(
                         origVttUriString = subBundle.origVtt?.uriString,
                         internalEnSrtPath = subBundle.internalEnSrtPath,
                         internalOrigSrtPath = subBundle.internalOrigSrtPath,
+                        thumbnailUrl = resolvedThumbUrl ?: latestExisting?.thumbnailUrl,
+                        thumbnailPath = ThumbnailHelper.thumbPathIfExists(appContext, packId, latestExisting?.thumbnailPath),
                         createdAtMs = System.currentTimeMillis(),
                     )
                     upsertSavedPack(partialPack)
+                    ensurePackThumbnail(partialPack.effectiveId)
                 }
             }
             handlePipelineFailure(jobToken, t, fromExternalShare)
@@ -2781,9 +3043,12 @@ class SubcolabCoordinator(
                 origVttUriString = subBundle.origVtt?.uriString,
                 internalEnSrtPath = subBundle.internalEnSrtPath,
                 internalOrigSrtPath = subBundle.internalOrigSrtPath,
+                thumbnailPath = ThumbnailHelper.thumbPathIfExists(appContext, packId, existingPack?.thumbnailPath),
+                isCancelled = false,
                 createdAtMs = System.currentTimeMillis(),
             )
             upsertSavedPack(pack)
+            ensurePackThumbnail(pack.effectiveId)
 
             mutateState {
                 it.copy(
@@ -2901,11 +3166,22 @@ class SubcolabCoordinator(
             }
             file.delete()
 
+            val thumbPath = ThumbnailHelper.resolveOrCreateThumbnail(
+                context = appContext,
+                packId = packId,
+                storedPath = pack.thumbnailPath,
+                thumbnailUrl = pack.thumbnailUrl,
+                sourceUrl = pack.sourceUrl,
+                mp4UriString = savedMp4?.uriString,
+                internalVideoPath = fallbackPath,
+            )
             val updated = pack.copy(
                 mp4DisplayPath = savedMp4?.displayPath,
                 mp4UriString = savedMp4?.uriString,
                 internalVideoPath = fallbackPath,
                 videoResolution = maxHeight,
+                thumbnailPath = thumbPath ?: pack.thumbnailPath,
+                isCancelled = false,
             )
             upsertSavedPack(updated)
 
@@ -3047,9 +3323,11 @@ class SubcolabCoordinator(
                 origVttUriString = subBundle.origVtt?.uriString,
                 internalEnSrtPath = subBundle.internalEnSrtPath,
                 internalOrigSrtPath = subBundle.internalOrigSrtPath,
+                isCancelled = false,
                 createdAtMs = System.currentTimeMillis(),
             )
             upsertSavedPack(updatedPack)
+            ensurePackThumbnail(updatedPack.effectiveId)
 
             mutateState {
                 it.copy(

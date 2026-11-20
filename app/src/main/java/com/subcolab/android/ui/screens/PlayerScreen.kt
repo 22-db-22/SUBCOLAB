@@ -117,7 +117,7 @@ fun PlayerScreen(
     onUpdateSubtitleStyle: (Int, Boolean) -> Unit = { _, _ -> },
     onRetryStream: suspend () -> Pair<String, String?>? = { null },
     onSwitchToQueuedOffer: (String) -> Unit = {},
-    onHideQueuedOffer: (String) -> Unit = {},
+    onCancelQueuedOffer: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -870,7 +870,7 @@ fun PlayerScreen(
             }
         }
 
-        // Non-interrupting Floating Banner for Ready Queued Videos ("Watch Now" / "Hide")
+        // Non-interrupting Floating Banner for Ready Queued Videos ("Watch Now" / "Cancel Job")
         val nextReadyOffer = readyQueuedOffers.firstOrNull()
         if (nextReadyOffer != null && !isInPictureInPicture) {
             Surface(
@@ -904,11 +904,13 @@ fun PlayerScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    TextButton(
-                        onClick = { onHideQueuedOffer(nextReadyOffer.queueId) },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    OutlinedButton(
+                        onClick = { onCancelQueuedOffer(nextReadyOffer.queueId) },
+                        border = BorderStroke(1.dp, SubcolabColors.DangerRed.copy(alpha = 0.7f)),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
                     ) {
-                        Text("Hide", color = Color(0xFFCBD5E1), fontSize = 12.sp)
+                        Text("Cancel Job", color = Color(0xFFFCA5A5), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
                     }
                     Button(
                         onClick = { onSwitchToQueuedOffer(nextReadyOffer.queueId) },

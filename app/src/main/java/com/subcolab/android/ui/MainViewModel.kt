@@ -110,6 +110,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return coordinator.openSavedPackInPlayer(packId)
     }
 
+    fun ensurePackThumbnail(packId: String) {
+        coordinator.ensurePackThumbnail(packId)
+    }
+
     fun deletePackPermanently(packId: String) {
         coordinator.deletePackPermanently(packId)
     }
@@ -162,9 +166,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return coordinator.switchToQueuedOffer(queueId)
     }
 
-    fun hideQueuedOffer(context: Context, queueId: String) {
+    fun cancelQueuedOffer(context: Context, queueId: String) {
         SubcolabForegroundService.cancelQueuedNotification(context, queueId)
-        coordinator.hideQueuedReadyOffer(queueId)
+        coordinator.cancelQueuedReadyOffer(queueId)
     }
 
     fun dismissQuickTips() {

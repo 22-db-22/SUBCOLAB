@@ -274,6 +274,9 @@ data class SavedPack(
     val internalEnSrtPath: String? = null,
     val internalOrigSrtPath: String? = null,
     val internalVideoPath: String? = null,
+    val thumbnailUrl: String? = null,
+    val thumbnailPath: String? = null,
+    val isCancelled: Boolean = false,
     val createdAtMs: Long,
 ) {
     val effectiveId: String

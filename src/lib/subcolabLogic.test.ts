@@ -2,25 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  QUICK_LANG_CHIPS,
   QUICK_TIPS_DISMISSED_KEY,
   WHISPER_MODELS,
   WORKFLOW_MODES,
+  cancelActiveJob,
+  cancelReadyOffer,
   chooseSubtitleStrategy,
   completeActiveAndPromoteQueue,
   computeAdaptiveAudioChunkSec,
   computeResumeOffsetSec,
   createInitialQueueState,
+  deleteSavedPackById,
   extractAndUnwrapUrl,
   filterWhisperHallucination,
   formatMmSs,
   formatSubtitleDelay,
-  hideReadyOffer,
   isTimestampTranslated,
   normalizeWhisperModel,
   onActiveJobMediaReady,
   parseVttOrSrtCues,
   persistQuickTipsDismissed,
   readQuickTipsDismissed,
+  redownloadPackInSim,
   removeQueuedJobById,
   searchWhisperLanguages,
   submitJobToQueueState,
@@ -119,9 +123,13 @@ test('restricts Whisper models to large-v3 (default) and large-v3-turbo with saf
   assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.vocalBoost, false);
   assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.highPrecisionBeam, false);
   assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.includeOriginal, false);
+  assert.deepEqual(
+    QUICK_LANG_CHIPS.map((c) => c.shortLabel),
+    ['Auto', 'Chinese', 'Korean', 'Jap'],
+  );
 });
 
-test('queues jobs sequentially, promotes Queued No. 1, and offers non-interrupting Watch Now / Hide', () => {
+test('queues jobs sequentially, promotes Queued No. 1, and offers non-interrupting Watch Now / Cancel Job', () => {
   let qState = createInitialQueueState();
 
   // Start Job 1 (Watch Now) immediately
@@ -190,7 +198,7 @@ test('queues jobs sequentially, promotes Queued No. 1, and offers non-interrupti
   assert.equal(qState.readyOffers.length, 0);
   assert.equal(qState.playingVideo?.id, 'job2');
 
-  // Removing an item & hiding an offer work cleanly
+  // Removing a queued item cancels it and preserves it in Downloads (savedPacks) with a thumbnail
   const r4 = submitJobToQueueState(qState, {
     id: 'job4',
     url: 'https://vimeo.com/444',
@@ -200,13 +208,49 @@ test('queues jobs sequentially, promotes Queued No. 1, and offers non-interrupti
   });
   qState = removeQueuedJobById(r4.state, 'job4');
   assert.equal(qState.queuedJobs.length, 0);
+  const canceledJob4 = qState.savedPacks.find((p) => p.id === 'job4');
+  assert.equal(canceledJob4?.status, 'canceled');
+  assert.equal(canceledJob4?.thumbnailDataUrl.startsWith('data:image/svg+xml'), true);
 
+  // Cancel Job on ready queued offer cancels active job2X, keeps playback untouched, promotes queued job5, and saves canceled pack
   qState = {
     ...qState,
-    readyOffers: [{ queueId: 'jobX', title: 'X', url: 'https://vimeo.com/9', cueCount: 4, modelId: 'large-v3' }],
+    activeJob: {
+      id: 'jobX',
+      title: 'Offer X',
+      url: 'https://vimeo.com/9',
+      mode: 'WATCH_NOW',
+      options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+      isFromQueue: true,
+      cueCount: 4,
+      status: 'running',
+    },
+    queuedJobs: [
+      {
+        queueId: 'job5',
+        title: 'Video 5',
+        url: 'https://vimeo.com/555',
+        mode: 'DOWNLOAD_AND_TRANSLATE',
+        options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+      },
+    ],
+    readyOffers: [{ queueId: 'jobX', title: 'Offer X', url: 'https://vimeo.com/9', cueCount: 4, modelId: 'large-v3' }],
   };
-  qState = hideReadyOffer(qState, 'jobX');
+  qState = cancelReadyOffer(qState, 'jobX');
   assert.equal(qState.readyOffers.length, 0);
+  assert.equal(qState.playingVideo?.id, 'job2');
+  assert.equal(qState.activeJob?.id, 'job5');
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.status, 'canceled');
+
+  // Re-downloading video and subtitles on canceled pack restores saved status, and delete removes it
+  qState = redownloadPackInSim(qState, 'jobX', 'video');
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.hasVideo, true);
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.status, 'saved');
+  qState = cancelActiveJob(qState);
+  assert.equal(qState.activeJob, null);
+  assert.equal(qState.savedPacks.find((p) => p.id === 'job5')?.status, 'canceled');
+  qState = deleteSavedPackById(qState, 'jobX');
+  assert.equal(qState.savedPacks.some((p) => p.id === 'jobX'), false);
 });
 
 test('persists Quick Tips dismissal across reloads', () => {
