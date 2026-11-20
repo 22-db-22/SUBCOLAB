@@ -25,10 +25,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           
-      - name:  Set up Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools'
+          packages: 'platform-tools build-tools;35.0.0'
 
       - name: Set up Gradle 8.10.2
         uses: gradle/actions/setup-gradle@v4
@@ -38,13 +38,26 @@ jobs:
       - name: Run Kotlin Unit Tests
         run: gradle testDebugUnitTest --no-daemon
 
-      - name: Build SUBCOLAB Debug APK (arm64-v8a)
-        run: gradle assembleDebug --no-daemon
+      - name: Build SUBCOLAB Release APK (arm64-v8a)
+        run: gradle assembleRelease --no-daemon
 
-      - name: Upload SUBCOLAB APKs
+      - name: Sign Release APK
+        id: sign_apk
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        if: env.SIGNING_KEY != ''
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload SUBCOLAB Release APK
         uses: actions/upload-artifact@v4
         with:
           name: SUBCOLAB-Android-APKs
           path: |
-            app/build/outputs/apk/debug/*.apk
+            ${{ steps.sign_apk.outputs.signedReleaseFile || 'app/build/outputs/apk/release/*.apk' }}
           retention-days: 30
