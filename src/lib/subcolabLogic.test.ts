@@ -2,10 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WORKFLOW_MODES,
+  chooseSubtitleStrategy,
   computeAdaptiveAudioChunkSec,
+  computeResumeOffsetSec,
   extractAndUnwrapUrl,
+  filterWhisperHallucination,
   formatMmSs,
+  formatSubtitleDelay,
   isTimestampTranslated,
+  parseVttOrSrtCues,
   searchWhisperLanguages,
 } from './subcolabLogic';
 
@@ -49,3 +54,41 @@ test('exposes Watch Now and Download workflow modes', () => {
   assert.equal(download?.opensPlayer, false);
   assert.equal(download?.savesOfflinePack, true);
 });
+
+test('chooses Smart Subtitles decision path (direct EN > manual translate > Whisper GPU)', () => {
+  const ko = { lang: 'ko', ext: 'vtt', url: 'https://cdn.example/ko.vtt' };
+  const ja = { lang: 'ja', ext: 'srt', url: 'https://cdn.example/ja.srt' };
+  const en = { lang: 'en', ext: 'vtt', url: 'https://cdn.example/en.vtt' };
+
+  assert.equal(chooseSubtitleStrategy([ko, en], 'ko').kind, 'USE_DIRECT_ENGLISH');
+  const koPick = chooseSubtitleStrategy([ko, ja], 'ko');
+  assert.equal(koPick.kind, 'TRANSLATE_MANUAL');
+  if (koPick.kind === 'TRANSLATE_MANUAL') {
+    assert.equal(koPick.sourceLang, 'ko');
+  }
+  assert.equal(chooseSubtitleStrategy([], 'auto').kind, 'USE_WHISPER_GPU');
+});
+
+test('parses WebVTT captions and filters Whisper hallucinations cleanly', () => {
+  const sampleVtt = `WEBVTT\n\n00:01.000 --> 00:03.500\n<i>Welcome &amp; enjoy!</i>\n\n00:04.000 --> 00:06.000\n{\\an8}Ramen time`;
+  const cues = parseVttOrSrtCues(sampleVtt);
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].text, 'Welcome & enjoy!');
+  assert.equal(cues[1].text, 'Ramen time');
+
+  assert.equal(filterWhisperHallucination('Thanks for watching.'), '');
+  assert.equal(filterWhisperHallucination('[Music]'), '');
+  assert.equal(filterWhisperHallucination('Subtitles by Amara.org'), '');
+  assert.equal(filterWhisperHallucination('yeah yeah yeah yeah yeah yeah'), '');
+  assert.equal(filterWhisperHallucination('[sigh] Let us order ramen now.'), 'Let us order ramen now.');
+});
+
+test('computes checkpoint resume offset and formats subtitle delay', () => {
+  assert.equal(computeResumeOffsetSec(false, [{ startSec: 0, endSec: 50 }], 0), 50);
+  assert.equal(computeResumeOffsetSec(true, [{ startSec: 0, endSec: 50 }], 50), 0);
+  assert.equal(computeResumeOffsetSec(false, [{ startSec: 0, endSec: 5 }], 0), 0);
+  assert.equal(formatSubtitleDelay(0), '0.0s');
+  assert.equal(formatSubtitleDelay(1.5), '+1.5s');
+  assert.equal(formatSubtitleDelay(-0.5), '-0.5s');
+});
+

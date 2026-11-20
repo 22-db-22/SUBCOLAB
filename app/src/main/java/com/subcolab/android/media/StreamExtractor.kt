@@ -1,6 +1,7 @@
 package com.subcolab.android.media
 
 import android.content.Context
+import com.subcolab.android.model.SubtitleCue
 import com.subcolab.android.model.VideoChunkInfo
 import com.subcolab.android.util.AppLogger
 import com.yausername.youtubedl_android.YoutubeDL
@@ -38,9 +39,23 @@ import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+
+data class SubtitleTrackCandidate(
+    val lang: String,
+    val ext: String,
+    val url: String,
+    val name: String? = null,
+)
+
+sealed class SubtitleStrategy {
+    data object UseWhisperGpu : SubtitleStrategy()
+    data class UseDirectEnglish(val track: SubtitleTrackCandidate) : SubtitleStrategy()
+    data class TranslateManualSubtitles(val track: SubtitleTrackCandidate, val sourceLang: String) : SubtitleStrategy()
+}
 
 data class ResolvedStreamInfo(
     val title: String?,
@@ -50,6 +65,7 @@ data class ResolvedStreamInfo(
     val httpHeaders: Map<String, String>,
     val canUseMpegTs: Boolean,
     val clientUsed: String,
+    val manualSubtitles: List<SubtitleTrackCandidate> = emptyList(),
 )
 
 class StreamExtractor {
@@ -104,6 +120,66 @@ class StreamExtractor {
                 durationSec <= 2700.0 -> 40
                 else -> 60
             }
+        }
+
+        private fun baseLangCode(raw: String): String {
+            val clean = raw.trim().lowercase()
+            return when {
+                clean.startsWith("zh") -> clean.substringBefore('-').substringBefore('_')
+                else -> clean.substringBefore('-').substringBefore('_')
+            }
+        }
+
+        fun selectSubtitleStrategy(
+            manualSubs: List<SubtitleTrackCandidate>,
+            requestedSourceLang: String,
+        ): SubtitleStrategy {
+            if (manualSubs.isEmpty()) return SubtitleStrategy.UseWhisperGpu
+
+            val enCandidates = manualSubs.filter { baseLangCode(it.lang) == "en" }
+            if (enCandidates.isNotEmpty()) {
+                val bestEn = enCandidates.sortedWith(
+                    compareBy<SubtitleTrackCandidate> {
+                        if (it.lang.equals("en", ignoreCase = true)) 0 else 1
+                    }.thenBy {
+                        if (it.ext.equals("srt", ignoreCase = true)) 0 else 1
+                    },
+                ).first()
+                return SubtitleStrategy.UseDirectEnglish(bestEn)
+            }
+
+            val nonEnCandidates = manualSubs.filter {
+                val base = baseLangCode(it.lang)
+                base.isNotBlank() && base != "en" && base != "live_chat" && base != "danmaku"
+            }
+            if (nonEnCandidates.isEmpty()) return SubtitleStrategy.UseWhisperGpu
+
+            val req = requestedSourceLang.trim().lowercase()
+            val chosen = if (req.isNotBlank() && req != "auto" && req != "detect") {
+                val reqBase = baseLangCode(req)
+                nonEnCandidates.filter { baseLangCode(it.lang) == reqBase }
+                    .minByOrNull { if (it.ext.equals("srt", ignoreCase = true)) 0 else 1 }
+                    ?: nonEnCandidates.minByOrNull { if (it.ext.equals("srt", ignoreCase = true)) 0 else 1 }!!
+            } else {
+                nonEnCandidates.minByOrNull { if (it.ext.equals("srt", ignoreCase = true)) 0 else 1 }!!
+            }
+            return SubtitleStrategy.TranslateManualSubtitles(chosen, chosen.lang)
+        }
+
+        internal fun flattenCueText(text: String): String =
+            text.replace('\n', ' ').replace(Regex("\\s+"), " ").trim()
+
+        internal fun parseGoogleTranslateBatchJson(rawJson: String): String? {
+            return runCatching {
+                val root = kotlinx.serialization.json.Json.parseToJsonElement(rawJson).jsonArray
+                val segments = root.firstOrNull()?.jsonArray ?: return null
+                buildString {
+                    for (seg in segments) {
+                        val piece = seg.jsonArray.firstOrNull()?.jsonPrimitive?.contentOrNull
+                        if (piece != null) append(piece)
+                    }
+                }
+            }.getOrNull()
         }
 
         @Volatile
@@ -185,6 +261,15 @@ class StreamExtractor {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(35, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    // Fast 5s HTTP probe client so dead/throttled CDN URLs fail quickly instead of stalling 35s
+    private val probeHttpClient: OkHttpClient = proxyHttpClient.newBuilder()
+        .retryOnConnectionFailure(false)
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
         .build()
 
     suspend fun updateYtDlpIfDue(context: Context) = withContext(Dispatchers.IO) {
@@ -335,6 +420,14 @@ class StreamExtractor {
         fallbackResolved
     }
 
+    fun isResolvedStreamReachable(streamInfo: ResolvedStreamInfo): Boolean {
+        val videoCode = probeStreamUrlCode(streamInfo.videoUrl, streamInfo.httpHeaders)
+        val videoOk = videoCode in 200..299 || videoCode == 304
+        if (!videoOk) return false
+        val audioCode = streamInfo.audioUrl?.let { probeStreamUrlCode(it, streamInfo.httpHeaders) } ?: 200
+        return audioCode in 200..299 || audioCode == 304
+    }
+
     private fun probeStreamUrlCode(url: String, headers: Map<String, String>): Int {
         return runCatching {
             val builder = Request.Builder().url(url).get()
@@ -351,8 +444,80 @@ class StreamExtractor {
                 builder.header("Range", "bytes=0-0")
             }
             builder.header("Accept-Encoding", "identity")
-            proxyHttpClient.newCall(builder.build()).execute().use { it.code }
+            probeHttpClient.newCall(builder.build()).execute().use { it.code }
         }.getOrDefault(0)
+    }
+
+    suspend fun downloadTextUrl(url: String, headers: Map<String, String> = emptyMap()): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val builder = Request.Builder().url(url).get()
+            headers.forEach { (k, v) ->
+                if (!k.equals("Host", ignoreCase = true) &&
+                    !k.equals("Content-Length", ignoreCase = true) &&
+                    !k.equals("Accept-Encoding", ignoreCase = true)
+                ) {
+                    builder.header(k, v)
+                }
+            }
+            if (!headers.keys.any { it.equals("User-Agent", ignoreCase = true) }) {
+                builder.header("User-Agent", DESKTOP_USER_AGENT)
+            }
+            proxyHttpClient.newCall(builder.build()).execute().use { resp ->
+                if (!resp.isSuccessful) null else resp.body?.string()
+            }
+        }.getOrNull()
+    }
+
+    suspend fun translateCuesToEnglish(
+        cues: List<SubtitleCue>,
+        sourceLang: String,
+    ): List<SubtitleCue>? = withContext(Dispatchers.IO) {
+        if (cues.isEmpty()) return@withContext null
+        val sl = baseLangCode(sourceLang).takeIf { it.isNotBlank() && it != "auto" } ?: "auto"
+        val outCues = ArrayList<SubtitleCue>(cues.size)
+        val batchSize = 15
+
+        for (startIdx in cues.indices step batchSize) {
+            currentCoroutineContext().ensureActive()
+            val batch = cues.subList(startIdx, minOf(startIdx + batchSize, cues.size))
+            val lines = batch.map { flattenCueText(it.text) }
+            val joined = lines.joinToString("\n")
+            val translatedBlock = fetchGoogleTranslateText(joined, sl) ?: return@withContext null
+            val translatedLines = translatedBlock.split('\n').map { it.trim() }
+
+            if (translatedLines.size == batch.size) {
+                for (i in batch.indices) {
+                    val text = translatedLines[i].ifBlank { lines[i] }
+                    outCues.add(batch[i].copy(index = outCues.size + 1, text = text))
+                }
+            } else {
+                // Fallback 1-by-1 only for this mismatched batch to guarantee exact timestamp alignment
+                for (i in batch.indices) {
+                    currentCoroutineContext().ensureActive()
+                    val single = fetchGoogleTranslateText(lines[i], sl) ?: return@withContext null
+                    outCues.add(batch[i].copy(index = outCues.size + 1, text = single.trim().ifBlank { lines[i] }))
+                }
+            }
+        }
+        outCues
+    }
+
+    private fun fetchGoogleTranslateText(queryText: String, sourceLang: String): String? {
+        if (queryText.isBlank()) return ""
+        return runCatching {
+            val encoded = URLEncoder.encode(queryText, "UTF-8")
+            val url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=$sourceLang&tl=en&dt=t&q=$encoded"
+            val req = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", DESKTOP_USER_AGENT)
+                .build()
+            proxyHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@use null
+                val body = resp.body?.string().orEmpty()
+                parseGoogleTranslateBatchJson(body)
+            }
+        }.getOrNull()
     }
 
     private fun parseResolvedJson(jsonText: String, clientUsed: String): ResolvedStreamInfo? {
@@ -360,6 +525,8 @@ class StreamExtractor {
         val title = root["title"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
         val durationSec = root["duration"]?.jsonPrimitive?.doubleOrNull ?: 0.0
         val topHeaders = extractHeaders(root["http_headers"] as? JsonObject)
+        // Strictly read creator-uploaded `subtitles` only; ignore `automatic_captions`
+        val manualSubs = extractManualSubtitles(root["subtitles"] as? JsonObject)
 
         val reqFormats = root["requested_formats"]?.jsonArray
         if (reqFormats != null && reqFormats.isNotEmpty()) {
@@ -390,6 +557,7 @@ class StreamExtractor {
                 httpHeaders = mergedHeaders,
                 canUseMpegTs = isCodecMpegTsCompatible(vCodec, aCodec),
                 clientUsed = clientUsed,
+                manualSubtitles = manualSubs,
             )
         }
 
@@ -405,7 +573,31 @@ class StreamExtractor {
             httpHeaders = topHeaders,
             canUseMpegTs = isCodecMpegTsCompatible(vCodec, aCodec),
             clientUsed = clientUsed,
+            manualSubtitles = manualSubs,
         )
+    }
+
+    private fun extractManualSubtitles(subObj: JsonObject?): List<SubtitleTrackCandidate> {
+        if (subObj == null || subObj.isEmpty()) return emptyList()
+        val list = ArrayList<SubtitleTrackCandidate>()
+        for ((lang, tracksEl) in subObj) {
+            val cleanLang = lang.trim()
+            if (cleanLang.isBlank() || cleanLang.equals("live_chat", ignoreCase = true)) continue
+            val tracks = runCatching { tracksEl.jsonArray }.getOrNull() ?: continue
+            val candidates = tracks.mapNotNull { el ->
+                val o = el as? JsonObject ?: return@mapNotNull null
+                val ext = o["ext"]?.jsonPrimitive?.contentOrNull?.lowercase().orEmpty()
+                val url = o["url"]?.jsonPrimitive?.contentOrNull?.takeIf { it.startsWith("http") } ?: return@mapNotNull null
+                if (ext != "srt" && ext != "vtt") return@mapNotNull null
+                val name = o["name"]?.jsonPrimitive?.contentOrNull
+                SubtitleTrackCandidate(lang = cleanLang, ext = ext, url = url, name = name)
+            }
+            val preferred = candidates.minByOrNull { if (it.ext == "srt") 0 else 1 }
+            if (preferred != null) {
+                list.add(preferred)
+            }
+        }
+        return list
     }
 
     private fun extractHeaders(obj: JsonObject?): Map<String, String> {
@@ -778,6 +970,7 @@ class StreamExtractor {
         workDir: File,
         existingProxy: LoopbackMediaProxy? = null,
         chunkDurationSec: Int = computeAdaptiveAudioChunkSec(streamInfo.durationSec),
+        startOffsetSec: Double = 0.0,
         processId: String = "relay_audio",
         onProgress: (Float, String) -> Unit,
         onAudioChunkReady: suspend (VideoChunkInfo) -> Unit,
@@ -790,28 +983,55 @@ class StreamExtractor {
         val sourceUrl = streamInfo.audioUrl?.takeIf { it.isNotBlank() } ?: streamInfo.videoUrl
         val localAudioUrl = proxy.proxiedUrl(sourceUrl)
         val segSec = chunkDurationSec.coerceIn(12, 60)
+        val safeOffsetSec = if (startOffsetSec >= 1.0) startOffsetSec else 0.0
 
-        val args = listOf(
-            "-nostdin", "-y",
-            "-hide_banner", "-loglevel", "warning",
-            "-err_detect", "ignore_err",
-            "-reconnect", "1",
-            "-reconnect_streamed", "1",
-            "-reconnect_delay_max", "5",
-            "-i", localAudioUrl,
-            "-vn", "-sn", "-dn",
-            "-ac", "1", "-ar", "16000",
-            "-c:a", "aac", "-b:a", "24k",
-            "-f", "segment",
-            "-segment_time", segSec.toString(),
-            "-segment_format", "adts",
-            "-reset_timestamps", "1",
-            "-segment_list_type", "csv",
-            "-segment_list", segmentsCsv.absolutePath,
-            File(workDir, "audio_%03d.aac").absolutePath,
-        )
+        val args = buildList {
+            add("-nostdin")
+            add("-y")
+            add("-hide_banner")
+            add("-loglevel")
+            add("warning")
+            add("-err_detect")
+            add("ignore_err")
+            add("-reconnect")
+            add("1")
+            add("-reconnect_streamed")
+            add("1")
+            add("-reconnect_delay_max")
+            add("5")
+            if (safeOffsetSec > 0.0) {
+                add("-ss")
+                add(String.format(Locale.US, "%.2f", safeOffsetSec))
+            }
+            add("-i")
+            add(localAudioUrl)
+            add("-vn")
+            add("-sn")
+            add("-dn")
+            add("-ac")
+            add("1")
+            add("-ar")
+            add("16000")
+            add("-c:a")
+            add("aac")
+            add("-b:a")
+            add("24k")
+            add("-f")
+            add("segment")
+            add("-segment_time")
+            add(segSec.toString())
+            add("-segment_format")
+            add("adts")
+            add("-reset_timestamps")
+            add("1")
+            add("-segment_list_type")
+            add("csv")
+            add("-segment_list")
+            add(segmentsCsv.absolutePath)
+            add(File(workDir, "audio_%03d.aac").absolutePath)
+        }
 
-        AppLogger.i(TAG, "Starting adaptive audio-only chunk stream (${segSec}s slices, dur=${streamInfo.durationSec.toInt()}s, proxyPort=${proxy.port})")
+        AppLogger.i(TAG, "Starting adaptive audio-only chunk stream (${segSec}s slices, offset=${safeOffsetSec.toInt()}s, dur=${streamInfo.durationSec.toInt()}s, proxyPort=${proxy.port})")
         val proc = startFfmpegProcess(context, args)
         activeNativeProcesses[processId] = proc
 
@@ -840,26 +1060,28 @@ class StreamExtractor {
             val lines = runCatching { segmentsCsv.readLines() }.getOrDefault(emptyList())
             for (line in lines) {
                 val parsed = parseSegmentsCsvLine(line) ?: continue
-                val (filename, startSec, endSec) = parsed
+                val (filename, relStartSec, relEndSec) = parsed
                 if (!emittedFiles.add(filename)) continue
                 val chunkFile = File(workDir, filename)
                 if (!chunkFile.exists() || chunkFile.length() <= 0L) {
                     emittedFiles.remove(filename)
                     continue
                 }
+                val absStartSec = relStartSec + safeOffsetSec
+                val absEndSec = relEndSec + safeOffsetSec
                 val chunkInfo = VideoChunkInfo(
                     index = chunks.size,
                     path = chunkFile.absolutePath,
-                    startSec = startSec,
-                    endSec = endSec,
+                    startSec = absStartSec,
+                    endSec = absEndSec,
                 )
                 chunks.add(chunkInfo)
                 val pct = if (streamInfo.durationSec > 0.0) {
-                    ((endSec / streamInfo.durationSec) * 100.0).toFloat().coerceIn(1f, 99f)
+                    ((absEndSec / streamInfo.durationSec) * 100.0).toFloat().coerceIn(1f, 99f)
                 } else {
                     (chunks.size * 10f).coerceIn(5f, 95f)
                 }
-                onProgress(pct, "Audio chunk ${chunkInfo.index + 1} (${endSec.toInt()}s) queued")
+                onProgress(pct, "Audio chunk ${chunkInfo.index + 1} (${absEndSec.toInt()}s) queued")
                 onAudioChunkReady(chunkInfo)
             }
         }

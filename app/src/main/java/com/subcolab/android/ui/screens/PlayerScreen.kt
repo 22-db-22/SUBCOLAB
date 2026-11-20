@@ -10,12 +10,14 @@ import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionDisabled
 import androidx.compose.material.icons.filled.Forward10
@@ -45,12 +49,16 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -64,6 +72,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,21 +88,31 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.subcolab.android.model.JobPhase
 import com.subcolab.android.model.JobProgressState
 import com.subcolab.android.player.MpvPlayerController
 import com.subcolab.android.ui.theme.SubcolabColors
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun PlayerScreen(
     jobState: JobProgressState,
     liveSrtRevision: Long,
     subtitleFontSize: Int,
+    subtitleDelaySec: Float = 0f,
+    subtitleBorderSize: Int = 3,
+    subtitleBoxEnabled: Boolean = false,
     isInPictureInPicture: Boolean,
     onEnterPip: () -> Unit,
     onOpenDebugLogs: () -> Unit = {},
     onPlayerVisibilityChange: (Boolean) -> Unit = {},
+    onUpdateSubtitleDelay: (Float) -> Unit = {},
+    onUpdateSubtitleFontSize: (Int) -> Unit = {},
+    onUpdateSubtitleStyle: (Int, Boolean) -> Unit = { _, _ -> },
+    onRetryStream: suspend () -> Pair<String, String?>? = { null },
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -102,8 +121,11 @@ fun PlayerScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val controller = remember { MpvPlayerController(context.applicationContext) }
     val playerState by controller.uiState.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     var controlsVisible by remember { mutableStateOf(true) }
+    var showSubSettingsPanel by remember { mutableStateOf(false) }
+    var isRetrying by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubValueSec by remember { mutableFloatStateOf(0f) }
@@ -132,7 +154,12 @@ fun PlayerScreen(
     // Initialize libmpv, keep screen awake during playback, and restore portrait + system bars on exit
     DisposableEffect(Unit) {
         onPlayerVisibilityChange(true)
-        controller.initializeIfNeeded(subtitleFontSize)
+        controller.initializeIfNeeded(
+            subtitleFontSize = subtitleFontSize,
+            subtitleDelaySec = subtitleDelaySec,
+            subtitleBorderSize = subtitleBorderSize,
+            subtitleBoxEnabled = subtitleBoxEnabled,
+        )
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             onPlayerVisibilityChange(false)
@@ -187,9 +214,26 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls after 3.5s
-    LaunchedEffect(controlsVisible, playerState.isPaused, isScrubbing) {
-        if (controlsVisible && !playerState.isPaused && !isScrubbing) {
+    // Live subtitle timing & style updates (apply directly to libmpv without reloading video)
+    LaunchedEffect(playerState.isInitialized, subtitleDelaySec) {
+        if (playerState.isInitialized) {
+            controller.setUserSubtitleDelay(subtitleDelaySec)
+        }
+    }
+    LaunchedEffect(playerState.isInitialized, subtitleFontSize) {
+        if (playerState.isInitialized) {
+            controller.setSubtitleFontSize(subtitleFontSize)
+        }
+    }
+    LaunchedEffect(playerState.isInitialized, subtitleBorderSize, subtitleBoxEnabled) {
+        if (playerState.isInitialized) {
+            controller.setSubtitleStyle(subtitleBorderSize, subtitleBoxEnabled)
+        }
+    }
+
+    // Auto-hide controls after 3.5s (stay visible while CC settings drawer is open)
+    LaunchedEffect(controlsVisible, playerState.isPaused, isScrubbing, showSubSettingsPanel) {
+        if (controlsVisible && !playerState.isPaused && !isScrubbing && !showSubSettingsPanel) {
             delay(3500L)
             controlsVisible = false
         }
@@ -385,15 +429,34 @@ fun PlayerScreen(
                             fontSize = 13.sp,
                         )
                     }
+                    if (jobState.phase == JobPhase.CANCELLED) {
+                        Text(
+                            text = "Job was cancelled before playback started. Tap Retry to re-resolve the live stream.",
+                            color = SubcolabColors.CinemaSkyBlue,
+                            fontSize = 12.sp,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { controller.retryLoad() },
+                            enabled = !isRetrying,
+                            onClick = {
+                                coroutineScope.launch {
+                                    isRetrying = true
+                                    val refreshed = runCatching { onRetryStream() }.getOrNull()
+                                    if (refreshed != null) {
+                                        controller.reloadMediaSource(refreshed.first, refreshed.second)
+                                    } else {
+                                        controller.retryLoad()
+                                    }
+                                    isRetrying = false
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = SubcolabColors.CinemaSubtitleYellow,
                                 contentColor = Color(0xFF1A1200),
                             ),
                         ) {
-                            Text("Retry", fontWeight = FontWeight.Bold)
+                            Text(if (isRetrying) "Retrying..." else "Retry", fontWeight = FontWeight.Bold)
                         }
                         TextButton(onClick = onOpenDebugLogs) {
                             Icon(Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp), tint = SubcolabColors.CinemaSkyBlue)
@@ -506,6 +569,13 @@ fun PlayerScreen(
                             fontSize = 12.sp,
                         )
                     }
+                    IconButton(onClick = { showSubSettingsPanel = !showSubSettingsPanel }) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Subtitle Timing & Style",
+                            tint = if (showSubSettingsPanel) SubcolabColors.CinemaSubtitleYellow else Color.White,
+                        )
+                    }
                     IconButton(onClick = onEnterPip) {
                         Icon(
                             imageVector = Icons.Default.PictureInPictureAlt,
@@ -521,6 +591,182 @@ fun PlayerScreen(
                             contentDescription = if (isFullscreen) "Exit Fullscreen" else "Enter Fullscreen",
                             tint = Color.White,
                         )
+                    }
+                }
+
+                // Live Subtitle Timing & Style Panel
+                if (showSubSettingsPanel) {
+                    Surface(
+                        color = Color(0xEE131A26),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SubcolabColors.CinemaSubtitleYellow.copy(alpha = 0.45f)),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 60.dp, end = 12.dp)
+                            .widthIn(min = 270.dp, max = 320.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(14.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "Subtitle Sync & Style",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                                IconButton(
+                                    onClick = { showSubSettingsPanel = false },
+                                    modifier = Modifier.size(24.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close subtitle settings",
+                                        tint = Color(0xFFCBD5E1),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+
+                            // Subtitle Delay (-0.5s / Reset / +0.5s)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                val delayLabel = if (kotlin.math.abs(subtitleDelaySec) < 0.05f) {
+                                    "0.0s"
+                                } else {
+                                    String.format(Locale.US, "%+.1fs", subtitleDelaySec)
+                                }
+                                Text(
+                                    text = "Timing Delay ($delayLabel)",
+                                    color = SubcolabColors.CinemaSubtitleYellow,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val next = ((subtitleDelaySec - 0.5f) * 2f).roundToInt() / 2f
+                                            onUpdateSubtitleDelay(next.coerceIn(-15f, 15f))
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(vertical = 6.dp),
+                                        border = BorderStroke(1.dp, Color(0x55FFFFFF)),
+                                    ) {
+                                        Text("-0.5s", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onUpdateSubtitleDelay(0f) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(vertical = 6.dp),
+                                        border = BorderStroke(1.dp, SubcolabColors.CinemaSkyBlue.copy(alpha = 0.6f)),
+                                    ) {
+                                        Text("Reset", color = SubcolabColors.CinemaSkyBlue, fontSize = 12.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val next = ((subtitleDelaySec + 0.5f) * 2f).roundToInt() / 2f
+                                            onUpdateSubtitleDelay(next.coerceIn(-15f, 15f))
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(vertical = 6.dp),
+                                        border = BorderStroke(1.dp, Color(0x55FFFFFF)),
+                                    ) {
+                                        Text("+0.5s", color = Color.White, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            // Font Size Slider
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("Font Size", color = Color.White, fontSize = 12.sp)
+                                    Text(
+                                        text = "${subtitleFontSize}px",
+                                        color = SubcolabColors.CinemaSubtitleYellow,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Slider(
+                                    value = subtitleFontSize.toFloat().coerceIn(28f, 72f),
+                                    onValueChange = { onUpdateSubtitleFontSize(it.roundToInt().coerceIn(28, 72)) },
+                                    valueRange = 28f..72f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = SubcolabColors.CinemaSubtitleYellow,
+                                        activeTrackColor = SubcolabColors.CinemaSubtitleYellow,
+                                        inactiveTrackColor = Color(0x44FFFFFF),
+                                    ),
+                                )
+                            }
+
+                            // Border & Dark Box Style
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    FilterChip(
+                                        selected = !subtitleBoxEnabled,
+                                        onClick = { onUpdateSubtitleStyle(subtitleBorderSize, false) },
+                                        label = { Text("Outline", fontSize = 12.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = SubcolabColors.SubtitleYellowDark,
+                                            selectedLabelColor = SubcolabColors.CinemaSubtitleYellow,
+                                            containerColor = Color(0xFF1F2937),
+                                            labelColor = Color.White,
+                                        ),
+                                    )
+                                    FilterChip(
+                                        selected = subtitleBoxEnabled,
+                                        onClick = { onUpdateSubtitleStyle(subtitleBorderSize, true) },
+                                        label = { Text("Dark Box", fontSize = 12.sp) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = SubcolabColors.SubtitleYellowDark,
+                                            selectedLabelColor = SubcolabColors.CinemaSubtitleYellow,
+                                            containerColor = Color(0xFF1F2937),
+                                            labelColor = Color.White,
+                                        ),
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("Outline Width", color = Color.White, fontSize = 12.sp)
+                                    Text(
+                                        text = "${subtitleBorderSize}px",
+                                        color = SubcolabColors.CinemaSkyBlue,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                Slider(
+                                    value = subtitleBorderSize.toFloat().coerceIn(0f, 6f),
+                                    onValueChange = { onUpdateSubtitleStyle(it.roundToInt().coerceIn(0, 6), subtitleBoxEnabled) },
+                                    valueRange = 0f..6f,
+                                    steps = 5,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = SubcolabColors.CinemaSkyBlue,
+                                        activeTrackColor = SubcolabColors.CinemaSkyBlue,
+                                        inactiveTrackColor = Color(0x44FFFFFF),
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
 

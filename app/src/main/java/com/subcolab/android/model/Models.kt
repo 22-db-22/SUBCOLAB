@@ -199,6 +199,7 @@ data class PreviousJobCache(
     val savedMp4Path: String? = null,
     val savedSrtPath: String? = null,
     val localVideoUri: String? = null,
+    val resumeFromSec: Double = 0.0,
 )
 
 @Serializable
@@ -258,6 +259,7 @@ data class PersistedJobSession(
     val previousJob: PreviousJobCache? = null,
     val savedPacks: List<SavedPack> = emptyList(),
     val wasCompleted: Boolean = false,
+    val resumeFromSec: Double = 0.0,
 )
 
 enum class SavePackStatus {
@@ -312,7 +314,15 @@ data class JobProgressState(
     val previousJob: PreviousJobCache? = null,
     val savedPacks: List<SavedPack> = emptyList(),
     val logTail: List<String> = emptyList(),
-)
+    val resumeFromSec: Double = 0.0,
+) {
+    val resumableFromSec: Double
+        get() = maxOf(
+            resumeFromSec,
+            completedChunks.maxOfOrNull { it.endSec } ?: 0.0,
+            previousJob?.resumeFromSec ?: 0.0,
+        )
+}
 
 @Serializable
 enum class ThemeMode(val label: String) {
@@ -333,5 +343,8 @@ data class AppSettings(
     val customOauthClientSecret: String = "",
     val hasCookiesFile: Boolean = false,
     val subtitleFontSize: Int = 46,
+    val subtitleDelaySec: Float = 0f,
+    val subtitleBorderSize: Int = 3,
+    val subtitleBoxEnabled: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SOFT_DARK,
 )

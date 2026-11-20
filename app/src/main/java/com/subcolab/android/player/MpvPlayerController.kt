@@ -78,6 +78,10 @@ class MpvPlayerController(private val context: Context) {
     private var pendingOrigSrtPath: String? = null
     private var pendingOrigCueCount: Int = 0
     private var desiredSubMode: String = "en" // "en" | "orig" | "off"
+    private var userSubDelaySec: Double = 0.0
+    private var subFontSize: Int = 46
+    private var subBorderSize: Int = 3
+    private var subBoxEnabled: Boolean = false
 
     // Chunked & live streaming state
     private var chunkList: List<VideoChunkInfo> = emptyList()
@@ -181,13 +185,9 @@ class MpvPlayerController(private val context: Context) {
                         AppLogger.i(TAG, "MPV_EVENT_FILE_LOADED received (chunkIdx=$currentChunkIndex)")
                         isFileLoaded = true
                         eofHandledForCurrentChunk = false
+                        applyEffectiveSubDelayLocked()
+                        applySubtitleAppearanceLocked()
                         if (currentChunkIndex >= 0 && !isPlayingStitched) {
-                            val activeChunk = chunkList.getOrNull(currentChunkIndex)
-                            if (activeChunk != null) {
-                                runCatching {
-                                    MPVLib.setPropertyDouble("sub-delay", -activeChunk.startSec)
-                                }
-                            }
                             pendingSeekInChunkSec?.let { targetSec ->
                                 pendingSeekInChunkSec = null
                                 runCatching {
@@ -195,7 +195,6 @@ class MpvPlayerController(private val context: Context) {
                                 }
                             }
                         } else {
-                            runCatching { MPVLib.setPropertyDouble("sub-delay", 0.0) }
                             val extAudio = liveAudioSource
                             if (!extAudio.isNullOrBlank() && attachedAudioSource != extAudio) {
                                 runCatching {
@@ -283,9 +282,23 @@ class MpvPlayerController(private val context: Context) {
         }
     }
 
-    fun initializeIfNeeded(subtitleFontSize: Int = 46) {
+    fun initializeIfNeeded(
+        subtitleFontSize: Int = 46,
+        subtitleDelaySec: Float = 0f,
+        subtitleBorderSize: Int = 3,
+        subtitleBoxEnabled: Boolean = false,
+    ) {
         synchronized(mpvLock) {
-            if (isCreated && activeController === this) return
+            subFontSize = subtitleFontSize.coerceIn(28, 72)
+            userSubDelaySec = subtitleDelaySec.toDouble().coerceIn(-15.0, 15.0)
+            subBorderSize = subtitleBorderSize.coerceIn(0, 6)
+            subBoxEnabled = subtitleBoxEnabled
+
+            if (isCreated && activeController === this) {
+                applyEffectiveSubDelayLocked()
+                applySubtitleAppearanceLocked()
+                return
+            }
             activeController?.let { prior ->
                 if (prior !== this) {
                     AppLogger.w(TAG, "Releasing prior active MpvPlayerController before init")
@@ -296,7 +309,6 @@ class MpvPlayerController(private val context: Context) {
             val fontsDir = prepareMpvFontsDir()
             val primaryOk = tryInitMpv(
                 fontsDir = fontsDir,
-                subtitleFontSize = subtitleFontSize,
                 hwdecMode = "mediacodec-copy",
             )
             if (!primaryOk) {
@@ -304,7 +316,6 @@ class MpvPlayerController(private val context: Context) {
                 runCatching { MPVLib.destroy() }
                 val fallbackOk = tryInitMpv(
                     fontsDir = fontsDir,
-                    subtitleFontSize = subtitleFontSize,
                     hwdecMode = "auto-safe",
                 )
                 if (!fallbackOk) {
@@ -326,7 +337,6 @@ class MpvPlayerController(private val context: Context) {
 
     private fun tryInitMpv(
         fontsDir: File,
-        subtitleFontSize: Int,
         hwdecMode: String,
     ): Boolean {
         return try {
@@ -355,13 +365,15 @@ class MpvPlayerController(private val context: Context) {
             setOpt("sub-font", "Roboto")
             setOpt("sub-font-provider", "none")
 
-            // Crisp yellow subtitles
+            // Crisp yellow subtitles with live-configurable border & optional box
             setOpt("sub-color", "#FFFF00")
             setOpt("sub-border-color", "#000000")
-            setOpt("sub-border-size", "3")
+            setOpt("sub-border-size", subBorderSize.coerceIn(0, 6).toString())
             setOpt("sub-shadow-color", "#80000000")
-            setOpt("sub-shadow-offset", "1")
-            setOpt("sub-font-size", subtitleFontSize.toString())
+            setOpt("sub-shadow-offset", if (subBoxEnabled) "0" else "1")
+            setOpt("sub-border-style", if (subBoxEnabled) "background-box" else "outline-and-shadow")
+            setOpt("sub-back-color", if (subBoxEnabled) "#99000000" else "#00000000")
+            setOpt("sub-font-size", subFontSize.coerceIn(28, 72).toString())
             setOpt("sub-margin-y", "36")
 
             MPVLib.init()
@@ -647,7 +659,11 @@ class MpvPlayerController(private val context: Context) {
 
     fun retryLoad() {
         synchronized(mpvLock) {
-            val src = loadedVideoSource ?: pendingLoadVideo ?: return
+            val src = loadedVideoSource ?: pendingLoadVideo ?: stitchedVideoSource ?: return
+            awaitingStartFile = false
+            isFileLoaded = false
+            attachedAudioSource = null
+            currentSubLoadedPath = null
             loadedVideoSource = null
             loadedPlaybackTarget = null
             loadRequested = false
@@ -655,6 +671,82 @@ class MpvPlayerController(private val context: Context) {
             lastMpvErrorLog = null
             _uiState.update { it.copy(error = null) }
             loadMediaInternalLocked(src)
+        }
+    }
+
+    fun reloadMediaSource(videoSource: String, audioSource: String? = null) {
+        synchronized(mpvLock) {
+            if (!isCreated || activeController !== this) return
+            stitchedVideoSource = videoSource
+            liveAudioSource = audioSource
+            chunkList = emptyList()
+            currentChunkIndex = -1
+            isPlayingStitched = true
+            waitingForNextChunkIndex = null
+            awaitingStartFile = false
+            isFileLoaded = false
+            attachedAudioSource = null
+            currentSubLoadedPath = null
+            loadedVideoSource = null
+            loadedPlaybackTarget = null
+            loadRequested = false
+            hwdecNoRetried = false
+            lastMpvErrorLog = null
+            _uiState.update { it.copy(error = null) }
+            loadMediaInternalLocked(videoSource)
+        }
+    }
+
+    fun setUserSubtitleDelay(delaySec: Float) {
+        synchronized(mpvLock) {
+            userSubDelaySec = delaySec.toDouble().coerceIn(-15.0, 15.0)
+            if (isCreated && activeController === this) {
+                applyEffectiveSubDelayLocked()
+            }
+        }
+    }
+
+    fun setSubtitleFontSize(size: Int) {
+        synchronized(mpvLock) {
+            subFontSize = size.coerceIn(28, 72)
+            if (isCreated && activeController === this) {
+                runCatching { MPVLib.setPropertyString("sub-font-size", subFontSize.toString()) }
+            }
+        }
+    }
+
+    fun setSubtitleStyle(borderSize: Int, boxEnabled: Boolean) {
+        synchronized(mpvLock) {
+            subBorderSize = borderSize.coerceIn(0, 6)
+            subBoxEnabled = boxEnabled
+            if (isCreated && activeController === this) {
+                applySubtitleAppearanceLocked()
+            }
+        }
+    }
+
+    private fun applyEffectiveSubDelayLocked() {
+        val chunkOffset = if (currentChunkIndex >= 0 && !isPlayingStitched) {
+            chunkList.getOrNull(currentChunkIndex)?.startSec ?: 0.0
+        } else {
+            0.0
+        }
+        runCatching { MPVLib.setPropertyDouble("sub-delay", userSubDelaySec - chunkOffset) }
+    }
+
+    private fun applySubtitleAppearanceLocked() {
+        runCatching {
+            MPVLib.setPropertyString("sub-font-size", subFontSize.coerceIn(28, 72).toString())
+            MPVLib.setPropertyString("sub-border-size", subBorderSize.coerceIn(0, 6).toString())
+            if (subBoxEnabled) {
+                MPVLib.setPropertyString("sub-border-style", "background-box")
+                MPVLib.setPropertyString("sub-back-color", "#99000000")
+                MPVLib.setPropertyString("sub-shadow-offset", "0")
+            } else {
+                MPVLib.setPropertyString("sub-border-style", "outline-and-shadow")
+                MPVLib.setPropertyString("sub-back-color", "#00000000")
+                MPVLib.setPropertyString("sub-shadow-offset", "1")
+            }
         }
     }
 
@@ -717,12 +809,7 @@ class MpvPlayerController(private val context: Context) {
             } else {
                 MPVLib.command(arrayOf("sub-reload"))
             }
-            if (currentChunkIndex >= 0 && !isPlayingStitched) {
-                val activeChunk = chunkList.getOrNull(currentChunkIndex)
-                if (activeChunk != null) {
-                    MPVLib.setPropertyDouble("sub-delay", -activeChunk.startSec)
-                }
-            }
+            applyEffectiveSubDelayLocked()
             val visible = desiredSubMode != "off"
             MPVLib.setPropertyBoolean("sub-visibility", visible)
             _uiState.update {

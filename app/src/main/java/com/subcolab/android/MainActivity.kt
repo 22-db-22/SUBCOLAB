@@ -65,6 +65,7 @@ import androidx.core.view.WindowCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.subcolab.android.model.JobPhase
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.service.SubcolabForegroundService
 import com.subcolab.android.ui.MainViewModel
@@ -168,6 +169,7 @@ class MainActivity : ComponentActivity() {
 
                         // Auto-open PlayerScreen once initial subtitles arrive in Watch Now (live stream or fallback chunks)
                         LaunchedEffect(
+                            jobState.phase,
                             jobState.isPlayerReady,
                             jobState.isLiveStreaming,
                             jobState.playableVideoSource,
@@ -177,10 +179,16 @@ class MainActivity : ComponentActivity() {
                             jobState.activePackId,
                             jobState.currentUrl,
                         ) {
-                            val activeKey = "${jobState.activePackId ?: ""}|${jobState.currentUrl}"
-                            if (!jobState.isPlayerReady) {
+                            val activePhaseOk = jobState.phase !in setOf(
+                                JobPhase.IDLE,
+                                JobPhase.CANCELLED,
+                                JobPhase.ERROR,
+                            )
+                            val activeKey = "${jobState.activePackId ?: "done"}|${jobState.currentUrl}"
+                            if (!jobState.isPlayerReady || !activePhaseOk) {
                                 autoOpenedJobKey = null
-                            } else if (jobState.mode == WorkflowMode.WATCH_NOW &&
+                            } else if (activePhaseOk &&
+                                jobState.mode == WorkflowMode.WATCH_NOW &&
                                 hasPlayableMedia &&
                                 jobState.cueCount > 0 &&
                                 currentRoute == "home" &&
@@ -215,6 +223,7 @@ class MainActivity : ComponentActivity() {
                                     onClearLocalVideo = viewModel::clearSelectedLocalVideo,
                                     onStartLocalVideoJob = viewModel::startLocalVideoJob,
                                     onRunPrevious = viewModel::runPrevious,
+                                    onResumePrevious = viewModel::resumePreviousJob,
                                     onPrepareNewLink = viewModel::prepareNewLink,
                                     onCancelJob = viewModel::cancelCurrentJob,
                                     onStopT4Gpu = viewModel::stopT4Gpu,
@@ -253,10 +262,20 @@ class MainActivity : ComponentActivity() {
                                     jobState = jobState,
                                     liveSrtRevision = liveSrtRevision,
                                     subtitleFontSize = settings.subtitleFontSize,
+                                    subtitleDelaySec = settings.subtitleDelaySec,
+                                    subtitleBorderSize = settings.subtitleBorderSize,
+                                    subtitleBoxEnabled = settings.subtitleBoxEnabled,
                                     isInPictureInPicture = isInPipMode,
                                     onEnterPip = { enterPipIfSupported() },
                                     onOpenDebugLogs = { showDebugLogsDialog = true },
                                     onPlayerVisibilityChange = viewModel::setPlayerScreenOpen,
+                                    onUpdateSubtitleDelay = viewModel::setSubtitleDelaySec,
+                                    onUpdateSubtitleFontSize = viewModel::setSubtitleFontSize,
+                                    onUpdateSubtitleStyle = { border, box ->
+                                        viewModel.setSubtitleBorderSize(border)
+                                        viewModel.setSubtitleBoxEnabled(box)
+                                    },
+                                    onRetryStream = viewModel::retryPlayback,
                                     onBack = {
                                         currentRoute = "home"
                                         navController.popBackStack()

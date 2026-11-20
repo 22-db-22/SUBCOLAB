@@ -13,6 +13,7 @@ import com.subcolab.android.data.SettingsRepository
 import com.subcolab.android.media.LocalAudioExtractor
 import com.subcolab.android.media.ResolvedStreamInfo
 import com.subcolab.android.media.StreamExtractor
+import com.subcolab.android.media.SubtitleStrategy
 import com.subcolab.android.model.JobPhase
 import com.subcolab.android.model.JobProgressState
 import com.subcolab.android.model.PersistedJobSession
@@ -46,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -90,6 +92,8 @@ class SubcolabCoordinator(
     private val deferredCleanupDirs = mutableListOf<File>()
     @Volatile
     private var promptedReadyForJobToken: Long = -1L
+    @Volatile
+    private var lastResolvedStreamPair: Pair<String, ResolvedStreamInfo>? = null
 
     fun hasActiveJob(): Boolean {
         val phase = _state.value.phase
@@ -287,6 +291,7 @@ class SubcolabCoordinator(
                 playableVideoSource = restoredVideo,
                 previousJob = saved.previousJob,
                 savedPacks = cleanedPacks,
+                resumeFromSec = if (saved.wasCompleted) 0.0 else saved.resumeFromSec,
             )
         }
         if (loadedCues > 0 || loadedOrigCues > 0) {
@@ -313,6 +318,14 @@ class SubcolabCoordinator(
         val current = _state.value
         val wasCompleted = wasCompletedOverride
             ?: (current.phase == JobPhase.COMPLETED || current.previousJob?.subtitlesCompleted == true)
+        val resumeSec = if (wasCompleted) {
+            0.0
+        } else {
+            maxOf(
+                current.resumeFromSec,
+                current.completedChunks.maxOfOrNull { it.endSec } ?: 0.0,
+            )
+        }
         settingsRepo.saveLastJobSession(
             PersistedJobSession(
                 currentUrl = current.currentUrl,
@@ -327,9 +340,10 @@ class SubcolabCoordinator(
                 liveOrigSrtPath = current.liveOrigSrtPath,
                 playableVideoSource = current.playableVideoSource,
                 selectedLocalVideoName = current.selectedLocalVideoName,
-                previousJob = current.previousJob,
+                previousJob = current.previousJob?.copy(resumeFromSec = resumeSec),
                 savedPacks = current.savedPacks,
                 wasCompleted = wasCompleted,
+                resumeFromSec = resumeSec,
             ),
         )
     }
@@ -353,6 +367,7 @@ class SubcolabCoordinator(
         workflowMode: WorkflowMode = WorkflowMode.WATCH_NOW,
         fromExternalShare: Boolean = false,
         reusePreviousCache: Boolean = false,
+        resumeFromSec: Double = 0.0,
     ) {
         val cleanUrl = UrlUnwrapper.extractAndUnwrap(rawUrl)
         if (!UrlUnwrapper.isValidVideoUrl(cleanUrl)) {
@@ -372,7 +387,7 @@ class SubcolabCoordinator(
             workflowMode
         }
 
-        AppLogger.i(TAG, "Starting URL job: mode=$effectiveMode url=$cleanUrl lang=$sourceLang externalShare=$fromExternalShare reuse=$reusePreviousCache")
+        AppLogger.i(TAG, "Starting URL job: mode=$effectiveMode url=$cleanUrl lang=$sourceLang externalShare=$fromExternalShare reuse=$reusePreviousCache resumeSec=$resumeFromSec")
         startForegroundServiceSafe()
 
         val jobToken = activeJobToken.incrementAndGet()
@@ -387,6 +402,7 @@ class SubcolabCoordinator(
                 workflowMode = effectiveMode,
                 fromExternalShare = fromExternalShare,
                 reusePreviousCache = reusePreviousCache,
+                resumeFromSec = resumeFromSec,
             )
         }
     }
@@ -578,8 +594,65 @@ class SubcolabCoordinator(
                 workflowMode = prev.mode,
                 fromExternalShare = false,
                 reusePreviousCache = true,
+                resumeFromSec = 0.0,
             )
         }
+    }
+
+    fun resumePreviousJob() {
+        val cur = _state.value
+        val prev = cur.previousJob
+        val resumeSec = cur.resumableFromSec
+        val targetUrl = cur.currentUrl.ifBlank { prev?.normalizedUrl.orEmpty() }
+        if (targetUrl.isBlank() || resumeSec < 10.0) {
+            runPreviousJob()
+            return
+        }
+        startUrlJob(
+            rawUrl = targetUrl,
+            sourceLang = prev?.sourceLang ?: cur.sourceLang,
+            workflowMode = prev?.mode ?: cur.mode,
+            fromExternalShare = false,
+            reusePreviousCache = false,
+            resumeFromSec = resumeSec,
+        )
+    }
+
+    suspend fun retryPlayerStream(): Pair<String, String?>? {
+        val cur = _state.value
+        val existingSrc = cur.playableVideoSource
+        if (!existingSrc.isNullOrBlank() && !existingSrc.startsWith("http")) {
+            return existingSrc to cur.playableAudioSource
+        }
+        val targetUrl = cur.currentUrl.ifBlank { cur.previousJob?.normalizedUrl.orEmpty() }
+        if (targetUrl.isBlank()) return null
+
+        val cached = lastResolvedStreamPair?.takeIf { it.first == targetUrl }?.second
+        val resolved = if (cached != null && streamExtractor.isResolvedStreamReachable(cached)) {
+            cached
+        } else {
+            streamExtractor.resolveStreamInfo(
+                url = targetUrl,
+                cookiesFile = settingsRepo.cookiesFile,
+                maxHeight = 720,
+                processId = "resolve_stream",
+            )?.also { lastResolvedStreamPair = targetUrl to it }
+        } ?: return null
+
+        val freshProxy = streamExtractor.createLoopbackProxy(resolved.httpHeaders)
+        replaceLiveStreamProxy(freshProxy)
+        val newVideoUrl = freshProxy.proxiedUrl(resolved.videoUrl)
+        val newAudioUrl = resolved.audioUrl?.takeIf { it.isNotBlank() }?.let { freshProxy.proxiedUrl(it) }
+        _state.update {
+            it.copy(
+                playableVideoSource = newVideoUrl,
+                playableAudioSource = newAudioUrl,
+                isLiveStreaming = true,
+                isPlayerReady = true,
+            )
+        }
+        AppLogger.i(TAG, "Recreated live playback proxy (port=${freshProxy.port}) for retry")
+        return newVideoUrl to newAudioUrl
     }
 
     fun cancelCurrentJob() {
@@ -592,22 +665,36 @@ class SubcolabCoordinator(
         closeLiveStreamProxy()
 
         _state.update {
+            val resumeSec = if (it.previousJob?.subtitlesCompleted == true) {
+                0.0
+            } else {
+                maxOf(it.resumeFromSec, it.completedChunks.maxOfOrNull { c -> c.endSec } ?: 0.0)
+            }
+            val cleanedVideo = it.playableVideoSource?.takeUnless { src -> src.startsWith("http") }
             it.copy(
                 phase = JobPhase.CANCELLED,
-                statusMessage = "Job cancelled (T4 GPU kept warm)",
-                detailMessage = "Paste a new link or pick a saved video.",
+                statusMessage = if (resumeSec >= 10.0) {
+                    "Job cancelled at ${(resumeSec / 60).toInt()}m${(resumeSec.toInt() % 60)}s (T4 GPU kept warm)"
+                } else {
+                    "Job cancelled (T4 GPU kept warm)"
+                },
+                detailMessage = "Paste a new link, resume, or pick a saved video.",
                 translationProgressText = null,
                 activePackId = null,
+                playableVideoSource = cleanedVideo,
                 playableAudioSource = null,
                 isLiveStreaming = false,
                 playableChunks = emptyList(),
                 isStitching = false,
                 isChunkDownloadComplete = false,
                 chunkDownloadStatus = null,
+                isPlayerReady = false,
                 isReadyPromptVisible = false,
+                resumeFromSec = resumeSec,
+                previousJob = it.previousJob?.copy(resumeFromSec = resumeSec),
             )
         }
-        persistSession()
+        persistSession(wasCompletedOverride = _state.value.previousJob?.subtitlesCompleted == true)
         notificationCallback?.invoke(
             "SUBCOLAB — T4 Warm",
             "Job stopped. Colab T4 GPU is ready for your next video.",
@@ -634,12 +721,19 @@ class SubcolabCoordinator(
         closeLiveStreamProxy()
 
         _state.update {
+            val resumeSec = if (it.previousJob?.subtitlesCompleted == true) {
+                0.0
+            } else {
+                maxOf(it.resumeFromSec, it.completedChunks.maxOfOrNull { c -> c.endSec } ?: 0.0)
+            }
+            val cleanedVideo = it.playableVideoSource?.takeUnless { src -> src.startsWith("http") }
             it.copy(
                 phase = JobPhase.IDLE,
                 statusMessage = "Colab T4 GPU stopped",
                 detailMessage = "",
                 translationProgressText = null,
                 activePackId = null,
+                playableVideoSource = cleanedVideo,
                 playableAudioSource = null,
                 isLiveStreaming = false,
                 playableChunks = emptyList(),
@@ -648,9 +742,13 @@ class SubcolabCoordinator(
                 chunkDownloadStatus = null,
                 isGpuWarm = false,
                 gpuRuntimeLabel = null,
+                isPlayerReady = false,
                 isReadyPromptVisible = false,
+                resumeFromSec = resumeSec,
+                previousJob = it.previousJob?.copy(resumeFromSec = resumeSec),
             )
         }
+        persistSession(wasCompletedOverride = _state.value.previousJob?.subtitlesCompleted == true)
         SubcolabForegroundService.cancelReadyNotification(appContext)
         appContext.stopService(Intent(appContext, SubcolabForegroundService::class.java))
 
@@ -806,6 +904,94 @@ class SubcolabCoordinator(
         val readyJson: String,
     )
 
+    private suspend fun trySmartManualSubtitles(
+        jobToken: Long,
+        resolvedStream: ResolvedStreamInfo,
+        sourceLang: String,
+    ): Boolean {
+        val strategy = StreamExtractor.selectSubtitleStrategy(resolvedStream.manualSubtitles, sourceLang)
+        when (strategy) {
+            is SubtitleStrategy.UseWhisperGpu -> return false
+            is SubtitleStrategy.UseDirectEnglish -> {
+                val track = strategy.track
+                _state.update {
+                    it.copy(
+                        phase = JobPhase.TRANSLATING,
+                        statusMessage = "Smart Subtitles: Loading manual English captions (${track.lang})...",
+                        translationProgressText = "Creator English captions found — skipping Whisper GPU!",
+                    )
+                }
+                appendLog("Smart Subtitles: Fetching creator English track (${track.lang}.${track.ext})")
+                val rawText = streamExtractor.downloadTextUrl(track.url, resolvedStream.httpHeaders) ?: return false
+                assertJobCurrent(jobToken)
+                val cues = SubtitleManager.parseVttOrSrtToCues(rawText)
+                if (cues.size < 5) {
+                    appendLog("Smart Subtitles: English track too short (${cues.size} cues); falling back to Whisper GPU.")
+                    return false
+                }
+                subtitleManager.loadExternalCues(cues, intoOriginal = false)
+                subtitleManager.setMetadata(detectedOrigLang = "en")
+                subtitleManager.writeLiveSrt(liveSrtFile)
+                _liveSrtRevision.value = _liveSrtRevision.value + 1L
+                _state.update {
+                    it.copy(
+                        cueCount = cues.size,
+                        detectedOrigLang = "en",
+                        liveSrtPath = liveSrtFile.absolutePath,
+                        translationProgressText = "${cues.size} creator EN captions loaded (0s GPU)",
+                        previousJob = it.previousJob?.copy(subtitlesCompleted = true),
+                    )
+                }
+                appendLog("Smart Subtitles: Loaded ${cues.size} English cues directly (skipped GPU)")
+                return true
+            }
+            is SubtitleStrategy.TranslateManualSubtitles -> {
+                val track = strategy.track
+                val srcCode = strategy.sourceLang
+                _state.update {
+                    it.copy(
+                        phase = JobPhase.TRANSLATING,
+                        statusMessage = "Smart Subtitles: Translating creator $srcCode captions -> EN...",
+                        translationProgressText = "Found manual $srcCode captions — translating locally (~2s)...",
+                    )
+                }
+                appendLog("Smart Subtitles: Fetching creator $srcCode track (${track.ext}) -> translating to English")
+                val rawText = streamExtractor.downloadTextUrl(track.url, resolvedStream.httpHeaders) ?: return false
+                assertJobCurrent(jobToken)
+                val origCues = SubtitleManager.parseVttOrSrtToCues(rawText)
+                if (origCues.size < 5) {
+                    appendLog("Smart Subtitles: $srcCode track too short (${origCues.size} cues); falling back to Whisper GPU.")
+                    return false
+                }
+                val translatedCues = streamExtractor.translateCuesToEnglish(origCues, srcCode)
+                assertJobCurrent(jobToken)
+                if (translatedCues == null || translatedCues.size < 5) {
+                    appendLog("Smart Subtitles: Fast text translate unavailable; falling back to Whisper GPU.")
+                    return false
+                }
+                subtitleManager.loadExternalCues(translatedCues, intoOriginal = false)
+                subtitleManager.loadExternalCues(origCues, intoOriginal = true)
+                subtitleManager.setMetadata(detectedOrigLang = srcCode)
+                subtitleManager.writeLiveSrt(liveSrtFile)
+                subtitleManager.writeOrigSrt(liveOrigSrtFile)
+                _liveSrtRevision.value = _liveSrtRevision.value + 1L
+                _state.update {
+                    it.copy(
+                        cueCount = translatedCues.size,
+                        origCueCount = origCues.size,
+                        detectedOrigLang = srcCode,
+                        liveSrtPath = liveSrtFile.absolutePath,
+                        liveOrigSrtPath = liveOrigSrtFile.absolutePath,
+                        translationProgressText = "${translatedCues.size} EN cues from manual $srcCode captions (0s GPU)",
+                        previousJob = it.previousJob?.copy(subtitlesCompleted = true),
+                    )
+                }
+                appendLog("Smart Subtitles: Translated ${translatedCues.size} $srcCode -> EN cues locally (skipped GPU)")
+                return true
+            }
+        }
+    }
+
     private suspend fun runUrlPipeline(
         jobToken: Long,
         cleanUrl: String,
@@ -814,6 +1000,7 @@ class SubcolabCoordinator(
         workflowMode: WorkflowMode,
         fromExternalShare: Boolean,
         reusePreviousCache: Boolean,
+        resumeFromSec: Double = 0.0,
     ) {
         assertJobCurrent(jobToken)
         val settings = settingsRepo.settings.value
@@ -829,6 +1016,12 @@ class SubcolabCoordinator(
             subtitleManager.cueCount() > 0 &&
             liveSrtFile.exists()
 
+        val isResuming = !canReuseSubtitles &&
+            resumeFromSec >= 10.0 &&
+            subtitleManager.cueCount() > 0 &&
+            liveSrtFile.exists()
+        val effectiveResumeSec = if (isResuming) resumeFromSec else 0.0
+
         val existingPack = _state.value.savedPacks.firstOrNull { !it.isLocalVideo && it.sourceUrl == cleanUrl }
         val packId = existingPack?.effectiveId ?: UUID.randomUUID().toString().take(12)
 
@@ -837,7 +1030,7 @@ class SubcolabCoordinator(
             ?: existingPack?.internalVideoPath?.takeIf { File(it).exists() }
             ?: prev?.savedMp4Path?.takeIf { reusePreviousCache && prev.normalizedUrl == cleanUrl && File(it).exists() }
 
-        if (!canReuseSubtitles) {
+        if (!canReuseSubtitles && !isResuming) {
             subtitleManager.reset()
             if (liveSrtFile.exists()) liveSrtFile.delete()
             if (liveOrigSrtFile.exists()) liveOrigSrtFile.delete()
@@ -845,7 +1038,7 @@ class SubcolabCoordinator(
             _liveSrtRevision.value = 0L
         }
 
-        val initialSlug = if (canReuseSubtitles) prev!!.titleSlug
+        val initialSlug = if (canReuseSubtitles || isResuming) (prev?.titleSlug ?: existingPack?.titleSlug ?: "SUBCOLAB_Video_${packId.take(4)}")
         else existingPack?.titleSlug ?: "SUBCOLAB_Video_${packId.take(4)}"
 
         val initialCache = PreviousJobCache(
@@ -858,6 +1051,7 @@ class SubcolabCoordinator(
             savedMp4Path = prev?.savedMp4Path,
             savedMp4Uri = cachedPlayableSource?.takeIf { it.startsWith("content://") },
             localVideoUri = null,
+            resumeFromSec = effectiveResumeSec,
         )
 
         assertJobCurrent(jobToken)
@@ -867,6 +1061,7 @@ class SubcolabCoordinator(
                 statusMessage = when {
                     canReuseSubtitles && isWatchNow -> "Subtitles cached — opening player..."
                     canReuseSubtitles -> "Subtitles cached — downloading <=720p MP4..."
+                    isResuming -> "Resuming from ${(effectiveResumeSec / 60).toInt()}m${(effectiveResumeSec.toInt() % 60)}s..."
                     isWatchNow -> "Resolving live stream & booting Colab T4 GPU..."
                     else -> "Downloading <=720p MP4 & booting Colab T4 GPU..."
                 },
@@ -874,11 +1069,11 @@ class SubcolabCoordinator(
                 currentUrl = cleanUrl,
                 titleSlug = initialSlug,
                 sourceLang = sourceLang,
-                detectedOrigLang = if (canReuseSubtitles) it.detectedOrigLang else null,
+                detectedOrigLang = if (canReuseSubtitles || isResuming) it.detectedOrigLang else null,
                 mode = workflowMode,
-                cueCount = if (canReuseSubtitles) subtitleManager.cueCount() else 0,
-                origCueCount = if (canReuseSubtitles) subtitleManager.origCueCount() else 0,
-                completedChunks = if (canReuseSubtitles) subtitleManager.getCompletedChunks() else emptyList(),
+                cueCount = if (canReuseSubtitles || isResuming) subtitleManager.cueCount() else 0,
+                origCueCount = if (canReuseSubtitles || isResuming) subtitleManager.origCueCount() else 0,
+                completedChunks = if (canReuseSubtitles || isResuming) subtitleManager.getCompletedChunks() else emptyList(),
                 playableChunks = emptyList(),
                 isChunkDownloadComplete = false,
                 totalDurationSec = 0.0,
@@ -891,6 +1086,8 @@ class SubcolabCoordinator(
                 activePackId = packId,
                 translationProgressText = if (canReuseSubtitles) {
                     "Reusing ${subtitleManager.cueCount()} cached cues"
+                } else if (isResuming) {
+                    "Resuming from ${effectiveResumeSec.toInt()}s (${subtitleManager.cueCount()} cues kept)..."
                 } else if (isWatchNow) {
                     "Booting T4 GPU & resolving smooth live stream..."
                 } else {
@@ -907,6 +1104,7 @@ class SubcolabCoordinator(
                 errorMessage = null,
                 previousJob = initialCache,
                 logTail = emptyList(),
+                resumeFromSec = effectiveResumeSec,
             )
         }
         persistSession(wasCompletedOverride = canReuseSubtitles)
@@ -949,8 +1147,7 @@ class SubcolabCoordinator(
                         }
                     } else null
 
-                // In WATCH_NOW mode, resolve direct stream on phone (works for YouTube & many non-YouTube HLS/MP4 sites!)
-                // In DOWNLOAD_AND_TRANSLATE mode, skip stream chunking and download the full regular MP4 in background.
+                // Resolve stream info in WATCH_NOW, and also inspect manual subtitles when fresh job needs subs
                 val resolvedStreamDeferred: Deferred<ResolvedStreamInfo?> = async {
                     if (isWatchNow && cachedPlayableSource == null) {
                         streamExtractor.resolveStreamInfo(
@@ -964,6 +1161,9 @@ class SubcolabCoordinator(
 
                 val resolvedStream = resolvedStreamDeferred.await()
                 assertJobCurrent(jobToken)
+                if (resolvedStream != null) {
+                    lastResolvedStreamPair = cleanUrl to resolvedStream
+                }
 
                 var resolvedTitleHint: String? = resolvedStream?.title
                 if (resolvedTitleHint.isNullOrBlank()) {
@@ -990,6 +1190,16 @@ class SubcolabCoordinator(
                 if (resolvedStream != null && resolvedStream.durationSec > 0.0) {
                     _state.update { it.copy(totalDurationSec = resolvedStream.durationSec) }
                 }
+
+                val smartSubtitlesApplied = if (!canReuseSubtitles && !isResuming && resolvedStream != null && resolvedStream.manualSubtitles.isNotEmpty()) {
+                    runCatching { trySmartManualSubtitles(jobToken, resolvedStream, sourceLang) }
+                        .onFailure { err ->
+                            if (err is CancellationException) throw err
+                            AppLogger.w(TAG, "Smart subtitle check failed (${err.message}); falling back to Whisper GPU.")
+                        }
+                        .getOrDefault(false)
+                } else false
+                val skipWhisperSubtitles = canReuseSubtitles || smartSubtitlesApplied
 
                 suspend fun saveCompletedMp4ToPack(mp4File: File): String {
                     val resolvedSlug = _state.value.titleSlug.ifBlank { "SUBCOLAB_Translated_Video" }
@@ -1038,7 +1248,7 @@ class SubcolabCoordinator(
                 // WATCH_NOW fast smooth path: live-stream video via LoopbackMediaProxy into libmpv
                 // while downloading ONLY tiny adaptive audio-only chunks (15s-60s) for Colab T4 Whisper!
                 val canRunSmoothLiveStream = isWatchNow &&
-                    !canReuseSubtitles &&
+                    !skipWhisperSubtitles &&
                     !settings.useCustomTunnel &&
                     cachedPlayableSource == null &&
                     resolvedStream != null
@@ -1047,7 +1257,25 @@ class SubcolabCoordinator(
                 var chunkStreamingFallbackNeeded = false
                 var finalVideoSource: String? = null
 
-                if (canRunSmoothLiveStream && resolvedStream != null) {
+                if (smartSubtitlesApplied && isWatchNow && resolvedStream != null && cachedPlayableSource == null) {
+                    val liveProxy = streamExtractor.createLoopbackProxy(resolvedStream.httpHeaders)
+                    replaceLiveStreamProxy(liveProxy)
+                    val localLiveVideoUrl = liveProxy.proxiedUrl(resolvedStream.videoUrl)
+                    val localLiveAudioUrl = resolvedStream.audioUrl?.takeIf { it.isNotBlank() }
+                        ?.let { liveProxy.proxiedUrl(it) }
+                    _state.update {
+                        it.copy(
+                            playableVideoSource = localLiveVideoUrl,
+                            playableAudioSource = localLiveAudioUrl,
+                            isLiveStreaming = true,
+                            chunkDownloadStatus = "Live stream ready • Smart Subtitles (0s GPU)",
+                            saveStatusText = "Live stream mode (manual subtitles loaded)",
+                        )
+                    }
+                    maybeNotifyPlayerReady(jobToken)
+                    subtitlesFinishedOk = true
+                    finalVideoSource = localLiveVideoUrl
+                } else if (canRunSmoothLiveStream && resolvedStream != null) {
                     val liveProxy = streamExtractor.createLoopbackProxy(resolvedStream.httpHeaders)
                     replaceLiveStreamProxy(liveProxy)
                     val localLiveVideoUrl = liveProxy.proxiedUrl(resolvedStream.videoUrl)
@@ -1108,6 +1336,7 @@ class SubcolabCoordinator(
                         "SUBCOLAB_STREAMING_QUEUE" to "True",
                         "SUBCOLAB_JOB_ID" to packId,
                         "SUBCOLAB_TOTAL_DURATION_SEC" to resolvedStream.durationSec.toInt().toString(),
+                        "SUBCOLAB_RESUME_SEC" to String.format(Locale.US, "%.2f", effectiveResumeSec),
                     )
                     resolvedTitleHint?.takeIf { it.isNotBlank() }?.let {
                         chunkStreamEnv["SUBCOLAB_VIDEO_TITLE"] = it
@@ -1123,7 +1352,7 @@ class SubcolabCoordinator(
                             val audioFile = File(chunkInfo.path)
                             if (audioFile.exists() && audioFile.length() > 0L) {
                                 val readyName = "chunk_%03d.ready".format(chunkInfo.index)
-                                val readyJson = """{"index":${chunkInfo.index},"audio":"${audioFile.name}","offset_sec":${chunkInfo.startSec},"min_emit_sec":0.0}"""
+                                val readyJson = """{"index":${chunkInfo.index},"audio":"${audioFile.name}","offset_sec":${chunkInfo.startSec},"min_emit_sec":$effectiveResumeSec}"""
                                 val item = QueuedChunkUpload(audioFile, readyName, readyJson)
                                 val sessionToUpload: ColabRuntimeSession?
                                 queueMutex.withLock {
@@ -1189,6 +1418,7 @@ class SubcolabCoordinator(
                             workDir = audioWorkDir,
                             existingProxy = liveProxy,
                             chunkDurationSec = adaptiveAudioSec,
+                            startOffsetSec = effectiveResumeSec,
                             processId = "relay_audio",
                             onProgress = { progress, label ->
                                 val pct = progress.toInt().coerceIn(0, 99)
@@ -1268,10 +1498,10 @@ class SubcolabCoordinator(
                             throw dlErr
                         }
                     }
-                } else if (isWatchNow && !canReuseSubtitles && !settings.useCustomTunnel && cachedPlayableSource == null && !isYouTube) {
+                } else if (isWatchNow && !skipWhisperSubtitles && !settings.useCustomTunnel && cachedPlayableSource == null && !isYouTube) {
                     // Phone resolve failed on geo-blocked/Cloudflare non-YouTube link: fall back to Colab chunk relay
                     tryColabChunkStream = true
-                } else {
+                } else if (!smartSubtitlesApplied) {
                     // DOWNLOAD_AND_TRANSLATE (full regular MP4 download) OR cached reuse OR custom tunnel
                     chunkStreamingFallbackNeeded = true
                 }
@@ -1294,6 +1524,7 @@ class SubcolabCoordinator(
                         "SUBCOLAB_MAX_HEIGHT" to "720",
                         "SUBCOLAB_CHUNK_SEC" to "45",
                         "SUBCOLAB_JOB_ID" to packId,
+                        "SUBCOLAB_RESUME_SEC" to String.format(Locale.US, "%.2f", effectiveResumeSec),
                     )
                     resolvedTitleHint?.takeIf { it.isNotBlank() }?.let {
                         colabStreamEnv["SUBCOLAB_VIDEO_TITLE"] = it
@@ -1478,7 +1709,7 @@ class SubcolabCoordinator(
                     val ytAudioWinner = CompletableDeferred<File>()
                     val ytProducersFailed = AtomicInteger(0)
 
-                    if (isYouTube && !canReuseSubtitles) {
+                    if (isYouTube && !skipWhisperSubtitles) {
                         launch {
                             runCatching {
                                 appendLog("Starting phone audio fetch (parallel with MP4 download)...")
@@ -1509,7 +1740,7 @@ class SubcolabCoordinator(
                     var phoneMp4Error: Throwable? = null
                     val mp4DownloadDeferred = async {
                         if (cachedPlayableSource != null) {
-                            if (isYouTube && !canReuseSubtitles && ytAudioWinner.isActive) {
+                            if (isYouTube && !skipWhisperSubtitles && ytAudioWinner.isActive) {
                                 runCatching {
                                     if (cachedPlayableSource.startsWith("content://")) {
                                         LocalAudioExtractor.extractAudioForColab(
@@ -1563,7 +1794,7 @@ class SubcolabCoordinator(
                             }
                             assertJobCurrent(jobToken)
 
-                            if (isYouTube && !canReuseSubtitles && ytAudioWinner.isActive) {
+                            if (isYouTube && !skipWhisperSubtitles && ytAudioWinner.isActive) {
                                 runCatching {
                                     LocalAudioExtractor.extractAudioFromFile(appContext, downloadedMp4, audioWorkDir)
                                 }.onSuccess { extracted ->
@@ -1584,10 +1815,10 @@ class SubcolabCoordinator(
                         } catch (ce: CancellationException) {
                             throw ce
                         } catch (err: Throwable) {
-                            if (isYouTube && !canReuseSubtitles && ytProducersFailed.incrementAndGet() >= 2 && ytAudioWinner.isActive) {
+                            if (isYouTube && !skipWhisperSubtitles && ytProducersFailed.incrementAndGet() >= 2 && ytAudioWinner.isActive) {
                                 ytAudioWinner.completeExceptionally(err)
                             }
-                            if (!isYouTube && !settings.useCustomTunnel && !canReuseSubtitles) {
+                            if (!isYouTube && !settings.useCustomTunnel && !skipWhisperSubtitles) {
                                 phoneMp4Error = err
                                 AppLogger.w(TAG, "Phone MP4 download failed for non-YouTube URL (${err.message}); will fall back to Colab MP4 relay if subtitles succeed.")
                                 null
@@ -1597,7 +1828,7 @@ class SubcolabCoordinator(
                         }
                     }
 
-                    if (!canReuseSubtitles) {
+                    if (!skipWhisperSubtitles) {
                         try {
                             val preparedLocalAudio: File? = if (isYouTube) {
                                 _state.update {
@@ -1627,6 +1858,7 @@ class SubcolabCoordinator(
                                     initialPrompt = "",
                                 ),
                                 silentBackground = false,
+                                resumeFromSec = effectiveResumeSec,
                             )
                             subtitlesFinishedOk = true
                         } catch (t: Throwable) {
@@ -1771,12 +2003,14 @@ class SubcolabCoordinator(
                         } else {
                             "Saved to Downloads/SUBCOLAB/$folder/"
                         },
+                        resumeFromSec = 0.0,
                         previousJob = it.previousJob?.copy(
                             titleSlug = slug,
                             subtitlesCompleted = true,
                             savedMp4Path = internalVideoFallbackPath,
                             savedMp4Uri = finalPack.mp4UriString,
                             savedSrtPath = subBundle.enSrt?.displayPath,
+                            resumeFromSec = 0.0,
                         ),
                     )
                 }
@@ -2307,6 +2541,7 @@ class SubcolabCoordinator(
         skipColabYouTube: Boolean,
         options: SubtitleRetranslateOptions,
         silentBackground: Boolean,
+        resumeFromSec: Double = 0.0,
     ) {
         val settings = settingsRepo.settings.value
         val workerScript = loadAssetText("colab_worker.py")
@@ -2324,6 +2559,7 @@ class SubcolabCoordinator(
             "SUBCOLAB_STREAMING_QUEUE" to "False",
             "SUBCOLAB_JOB_ID" to "",
             "SUBCOLAB_DOWNLOAD_MP4_ONLY" to "False",
+            "SUBCOLAB_RESUME_SEC" to String.format(Locale.US, "%.2f", resumeFromSec),
         )
         videoTitleHint?.takeIf { it.isNotBlank() }?.let {
             envVars["SUBCOLAB_VIDEO_TITLE"] = it

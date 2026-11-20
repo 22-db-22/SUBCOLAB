@@ -115,6 +115,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         coordinator.runPreviousJob()
     }
 
+    fun resumePreviousJob() {
+        coordinator.resumePreviousJob()
+    }
+
+    suspend fun retryPlayback(): Pair<String, String?>? {
+        return coordinator.retryPlayerStream()
+    }
+
     fun prepareNewLink() {
         _urlInput.value = ""
         _selectedLocalVideoUri.value = null
@@ -211,6 +219,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSubtitleFontSize(size: Int) {
         settingsRepo.update { it.copy(subtitleFontSize = size.coerceIn(28, 72)) }
+    }
+
+    fun setSubtitleDelaySec(delaySec: Float) {
+        settingsRepo.update { it.copy(subtitleDelaySec = delaySec.coerceIn(-15f, 15f)) }
+    }
+
+    fun setSubtitleBorderSize(borderSize: Int) {
+        settingsRepo.update { it.copy(subtitleBorderSize = borderSize.coerceIn(0, 6)) }
+    }
+
+    fun setSubtitleBoxEnabled(enabled: Boolean) {
+        settingsRepo.update { it.copy(subtitleBoxEnabled = enabled) }
     }
 
     fun setModelId(modelId: String) {

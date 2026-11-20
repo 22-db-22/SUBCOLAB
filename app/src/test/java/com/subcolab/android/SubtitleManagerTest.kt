@@ -122,4 +122,37 @@ class SubtitleManagerTest {
         assertEquals(2, done.totalCount)
         assertEquals(40.12, done.totalDurationSec, 0.001)
     }
+
+    @Test
+    fun `parses WebVTT and SRT external subtitles while stripping tags and entities`() {
+        val rawVtt = """
+            WEBVTT
+            Kind: captions
+            Language: en
+
+            NOTE ignore this comment
+
+            00:01.250 --> 00:04.500 align:start position:0%
+            <c.colorE5E5E5>Hello &amp; welcome!</c>
+            <i>Line two</i>
+
+            00:05.000 --> 00:07.200
+            {\an8}Testing &quot;SUBCOLAB&quot;
+        """.trimIndent()
+
+        val cues = SubtitleManager.parseVttOrSrtToCues(rawVtt)
+        assertEquals(2, cues.size)
+        assertEquals(1250L, cues[0].startMs)
+        assertEquals(4500L, cues[0].endMs)
+        assertEquals("Hello & welcome!\nLine two", cues[0].text)
+        assertEquals(5000L, cues[1].startMs)
+        assertEquals("Testing \"SUBCOLAB\"", cues[1].text)
+
+        val mgr = SubtitleManager()
+        val loaded = mgr.loadExternalCues(cues, intoOriginal = false)
+        assertEquals(2, loaded)
+        assertEquals(2, mgr.cueCount())
+        assertTrue(mgr.buildSrtContent().contains("Hello & welcome!"))
+    }
 }
+

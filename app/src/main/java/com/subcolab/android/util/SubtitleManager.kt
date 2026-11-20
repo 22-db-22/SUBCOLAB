@@ -332,6 +332,24 @@ class SubtitleManager {
     }
 
     @Synchronized
+    fun setMetadata(titleSlug: String? = null, detectedOrigLang: String? = null) {
+        if (!titleSlug.isNullOrBlank()) latestTitleSlug = titleSlug
+        if (!detectedOrigLang.isNullOrBlank()) this.detectedOrigLang = detectedOrigLang
+    }
+
+    @Synchronized
+    fun loadExternalCues(cues: List<SubtitleCue>, intoOriginal: Boolean = false): Int {
+        val targetMap = if (intoOriginal) origCuesByStartMs else cuesByStartMs
+        targetMap.clear()
+        for (cue in cues) {
+            if (cue.text.isNotBlank()) {
+                insertDedupCue(targetMap, cue)
+            }
+        }
+        return targetMap.size
+    }
+
+    @Synchronized
     fun restoreCompletedChunks(chunks: List<ChunkRange>) {
         completedChunks.clear()
         completedChunks.addAll(chunks)
@@ -359,13 +377,94 @@ class SubtitleManager {
     }
 
     companion object {
+        private val INLINE_TAG_REGEX = Regex("<[^>]+>|\\{\\\\[^}]+\\}")
+        private val MULTI_SPACE_REGEX = Regex("[ \\t]+")
+
+        fun parseVttOrSrtToCues(rawContent: String): List<SubtitleCue> {
+            val cleaned = rawContent
+                .removePrefix("\uFEFF")
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
+            if (cleaned.isBlank()) return emptyList()
+
+            val blocks = cleaned.split(Regex("\n{2,}"))
+            val result = ArrayList<SubtitleCue>()
+            for (rawBlock in blocks) {
+                val lines = rawBlock.lines().map { it.trimEnd() }.filter { it.isNotEmpty() }
+                if (lines.isEmpty()) continue
+                val first = lines[0].trim()
+                if (first.startsWith("WEBVTT", ignoreCase = true) ||
+                    first.startsWith("NOTE", ignoreCase = true) ||
+                    first.startsWith("STYLE", ignoreCase = true) ||
+                    first.startsWith("REGION", ignoreCase = true)
+                ) {
+                    continue
+                }
+
+                val timingIdx = lines.indexOfFirst { it.contains("-->") }
+                if (timingIdx < 0) continue
+
+                val timingParts = lines[timingIdx].split("-->", limit = 2)
+                if (timingParts.size != 2) continue
+
+                val startToken = timingParts[0].trim().substringBefore(' ')
+                val endToken = timingParts[1].trim().substringBefore(' ')
+                val startMs = parseSrtTimestampMs(startToken) ?: continue
+                val endMs = parseSrtTimestampMs(endToken) ?: (startMs + 1_500L)
+
+                val textLines = lines.drop(timingIdx + 1)
+                    .map { line ->
+                        line.replace(INLINE_TAG_REGEX, "")
+                            .replace("&nbsp;", " ")
+                            .replace("&amp;", "&")
+                            .replace("&lt;", "<")
+                            .replace("&gt;", ">")
+                            .replace("&#39;", "'")
+                            .replace("&quot;", "\"")
+                            .replace(MULTI_SPACE_REGEX, " ")
+                            .trim()
+                    }
+                    .filter { it.isNotEmpty() }
+
+                if (textLines.isEmpty()) continue
+                val dedupedText = textLines.distinct().joinToString("\n")
+                if (dedupedText.isBlank()) continue
+
+                val prev = result.lastOrNull()
+                if (prev != null && prev.text == dedupedText && kotlin.math.abs(prev.startMs - startMs) <= 250L) {
+                    result[result.lastIndex] = prev.copy(endMs = maxOf(prev.endMs, endMs))
+                    continue
+                }
+
+                result.add(
+                    SubtitleCue(
+                        index = result.size + 1,
+                        startMs = startMs,
+                        endMs = maxOf(endMs, startMs + 200L),
+                        text = dedupedText,
+                    ),
+                )
+            }
+            return result
+        }
+
         fun parseSrtTimestampMs(ts: String): Long? {
             val normalized = ts.trim().replace(',', '.')
             val parts = normalized.split(':')
-            if (parts.size != 3) return null
-            val h = parts[0].toLongOrNull() ?: return null
-            val m = parts[1].toLongOrNull() ?: return null
-            val secParts = parts[2].split('.')
+            val (h, m, secPart) = when (parts.size) {
+                3 -> Triple(
+                    parts[0].toLongOrNull() ?: return null,
+                    parts[1].toLongOrNull() ?: return null,
+                    parts[2],
+                )
+                2 -> Triple(
+                    0L,
+                    parts[0].toLongOrNull() ?: return null,
+                    parts[1],
+                )
+                else -> return null
+            }
+            val secParts = secPart.split('.')
             val s = secParts[0].toLongOrNull() ?: return null
             val ms = if (secParts.size > 1) {
                 secParts[1].padEnd(3, '0').take(3).toLongOrNull() ?: 0L

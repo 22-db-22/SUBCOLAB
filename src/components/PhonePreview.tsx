@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Search,
   Share2,
+  SlidersHorizontal,
   Square,
   Subtitles,
   X,
@@ -24,6 +25,7 @@ import {
   WorkflowModeId,
   extractAndUnwrapUrl,
   formatMmSs,
+  formatSubtitleDelay,
   isTimestampTranslated,
   searchWhisperLanguages,
 } from '../lib/subcolabLogic';
@@ -75,6 +77,11 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
   const [isPaused, setIsPaused] = useState(false);
   const [playTimeSec, setPlayTimeSec] = useState(0);
   const [subsVisible, setSubsVisible] = useState(true);
+  const [showSubControls, setShowSubControls] = useState(false);
+  const [subDelaySec, setSubDelaySec] = useState(0);
+  const [subFontSizePx, setSubFontSizePx] = useState(14);
+  const [subBoxEnabled, setSubBoxEnabled] = useState(true);
+  const [subBorderPx, setSubBorderPx] = useState(2);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [bgSaveState, setBgSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isSeekingAhead, setIsSeekingAhead] = useState(false);
@@ -177,11 +184,12 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
     }
   };
 
+  const effectiveTimeSec = Math.max(0, playTimeSec - subDelaySec);
   const activeCue =
     [...SAMPLE_CUES]
       .slice(0, Math.max(1, cueCount))
       .reverse()
-      .find((c) => playTimeSec >= c.timeSec) ?? SAMPLE_CUES[0];
+      .find((c) => effectiveTimeSec >= c.timeSec) ?? SAMPLE_CUES[0];
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start">
@@ -523,6 +531,16 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setShowSubControls((s) => !s)}
+                    aria-label="Subtitle Timing & Style"
+                    className={`rounded-lg px-2 py-1 text-xs font-medium ${
+                      showSubControls ? 'bg-[#7CC4FA] text-black' : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setIsFullscreen((f) => !f)}
                     aria-label="Toggle immersive fullscreen"
                     className={`rounded-lg px-2 py-1 text-xs font-medium ${
@@ -540,6 +558,96 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
 
               {/* Video Canvas Area */}
               <div className="relative flex flex-1 flex-col items-center justify-center">
+                {showSubControls && (
+                  <div className="absolute right-1 top-2 z-20 w-60 space-y-2 rounded-xl border border-[#FFFF00]/40 bg-[#131A26]/95 p-2.5 text-[11px] text-white shadow-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#FFFF00]">Subtitle Sync &amp; Style</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowSubControls(false)}
+                        aria-label="Close subtitle style drawer"
+                        className="text-slate-400 hover:text-white"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[10px] text-slate-300">
+                        Delay: <strong className="text-[#FFFF00]">{formatSubtitleDelay(subDelaySec)}</strong>
+                      </p>
+                      <div className="grid grid-cols-3 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setSubDelaySec((d) => Math.max(-15, Number((d - 0.5).toFixed(1))))}
+                          className="rounded border border-slate-700 bg-slate-900 py-1 font-semibold hover:bg-slate-800"
+                        >
+                          -0.5s
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSubDelaySec(0)}
+                          className="rounded border border-[#7CC4FA]/40 bg-slate-900 py-1 font-semibold text-[#7CC4FA]"
+                        >
+                          Reset
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSubDelaySec((d) => Math.min(15, Number((d + 0.5).toFixed(1))))}
+                          className="rounded border border-slate-700 bg-slate-900 py-1 font-semibold hover:bg-slate-800"
+                        >
+                          +0.5s
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-[10px]">
+                        <span>Size</span>
+                        <span className="text-[#FFFF00]">{subFontSizePx}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        aria-label="Subtitle font size"
+                        min={11}
+                        max={22}
+                        value={subFontSizePx}
+                        onChange={(e) => setSubFontSizePx(Number(e.target.value))}
+                        className="w-full accent-[#FFFF00]"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setSubBoxEnabled(false)}
+                        className={`rounded py-1 text-[10px] font-semibold ${
+                          !subBoxEnabled ? 'bg-[#FFFF00] text-black' : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        Outline ({subBorderPx}px)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSubBoxEnabled(true)}
+                        className={`rounded py-1 text-[10px] font-semibold ${
+                          subBoxEnabled ? 'bg-[#FFFF00] text-black' : 'bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        Dark Box
+                      </button>
+                    </div>
+                    {!subBoxEnabled && (
+                      <input
+                        type="range"
+                        aria-label="Subtitle outline thickness"
+                        min={0}
+                        max={4}
+                        value={subBorderPx}
+                        onChange={(e) => setSubBorderPx(Number(e.target.value))}
+                        className="w-full accent-[#7CC4FA]"
+                      />
+                    )}
+                  </div>
+                )}
+
                 {isSeekingAhead ? (
                   <div className="flex items-center gap-3 rounded-xl border border-[#FFFF00]/40 bg-[#0B0F17]/95 px-4 py-3">
                     <Loader2 className="h-5 w-5 animate-spin text-[#FFFF00]" />
@@ -565,7 +673,17 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
 
                 {subsVisible && !isSeekingAhead && (
                   <div className="absolute bottom-4 left-2 right-2 text-center">
-                    <span className="inline-block rounded bg-black/75 px-3 py-1.5 text-sm font-bold text-[#FFFF00] shadow">
+                    <span
+                      style={{
+                        fontSize: `${subFontSizePx}px`,
+                        textShadow: !subBoxEnabled && subBorderPx > 0
+                          ? `0 0 ${subBorderPx * 2}px #000, 1px 1px 0 #000`
+                          : undefined,
+                      }}
+                      className={`inline-block rounded px-3 py-1.5 font-bold text-[#FFFF00] ${
+                        subBoxEnabled ? 'bg-black/75 shadow' : 'bg-transparent'
+                      }`}
+                    >
                       {activeCue.text}
                     </span>
                   </div>

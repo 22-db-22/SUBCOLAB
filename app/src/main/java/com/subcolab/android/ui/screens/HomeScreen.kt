@@ -148,6 +148,7 @@ fun HomeScreen(
     onClearLocalVideo: () -> Unit,
     onStartLocalVideoJob: () -> Unit,
     onRunPrevious: () -> Unit,
+    onResumePrevious: () -> Unit = {},
     onPrepareNewLink: () -> Unit,
     onCancelJob: () -> Unit,
     onStopT4Gpu: () -> Unit,
@@ -352,6 +353,7 @@ fun HomeScreen(
                     onClearLocalVideo = onClearLocalVideo,
                     onStartLocalVideoJob = onStartLocalVideoJob,
                     onRunPrevious = onRunPrevious,
+                    onResumePrevious = onResumePrevious,
                     onPrepareNewLink = onPrepareNewLink,
                     onCancelJob = onCancelJob,
                     onStopT4Gpu = onStopT4Gpu,
@@ -672,6 +674,7 @@ private fun TranslateTabContent(
     onClearLocalVideo: () -> Unit,
     onStartLocalVideoJob: () -> Unit,
     onRunPrevious: () -> Unit,
+    onResumePrevious: () -> Unit,
     onPrepareNewLink: () -> Unit,
     onCancelJob: () -> Unit,
     onStopT4Gpu: () -> Unit,
@@ -1496,11 +1499,41 @@ private fun TranslateTabContent(
                             )
                         }
 
+                        val prev = jobState.previousJob
+                        val resumeSec = jobState.resumableFromSec
+                        val canResumeFromCheckpoint = prev != null &&
+                            resumeSec >= 10.0 &&
+                            !prev.subtitlesCompleted &&
+                            prev.mode != WorkflowMode.LOCAL_VIDEO_SUBTITLES
+                        if (canResumeFromCheckpoint) {
+                            val totalR = resumeSec.toInt().coerceAtLeast(0)
+                            val resumeLabel = String.format(java.util.Locale.US, "%02d:%02d", totalR / 60, totalR % 60)
+                            Button(
+                                onClick = onResumePrevious,
+                                enabled = !isRunning,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SubcolabColors.SagePrimary,
+                                    contentColor = Color.White,
+                                ),
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Resume from $resumeLabel (${jobState.cueCount} cues kept)",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            val prev = jobState.previousJob
                             if (prev != null) {
                                 OutlinedButton(
                                     onClick = onRunPrevious,
@@ -1518,7 +1551,7 @@ private fun TranslateTabContent(
                                     )
                                     Spacer(modifier = Modifier.width(5.dp))
                                     Text(
-                                        text = "Run Previous",
+                                        text = if (canResumeFromCheckpoint) "Restart" else "Run Previous",
                                         color = SubcolabColors.SubtitleYellow,
                                         fontSize = 12.sp,
                                         maxLines = 1,
@@ -1578,10 +1611,11 @@ private fun TranslateTabContent(
                             }
                         }
 
-                        jobState.previousJob?.let { prev ->
+                        jobState.previousJob?.let { prevItem ->
                             val cacheNote = buildList {
-                                if (prev.subtitlesCompleted) add("Subtitles cached")
-                                if (!prev.savedMp4Uri.isNullOrBlank() || !prev.savedMp4Path.isNullOrBlank()) add("MP4 cached")
+                                if (prevItem.subtitlesCompleted) add("Subtitles cached")
+                                else if (canResumeFromCheckpoint) add("Checkpoint ${jobState.cueCount} cues")
+                                if (!prevItem.savedMp4Uri.isNullOrBlank() || !prevItem.savedMp4Path.isNullOrBlank()) add("MP4 cached")
                             }.joinToString(" • ")
                             if (cacheNote.isNotEmpty()) {
                                 Text(

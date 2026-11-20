@@ -220,11 +220,93 @@ class ColabClient(
         json.parseToJsonElement(cleaned).jsonObject["outcome"]?.jsonPrimitive?.content?.toIntOrNull()
     }.getOrNull()
 
-    suspend fun prewarmIfSignedIn(): ColabRuntimeSession? {
+    @Volatile
+    private var lastPrefetchedModelKey: String? = null
+
+    suspend fun prewarmIfSignedIn(modelId: String = "large-v3"): ColabRuntimeSession? {
         if (!authManager.isSignedIn()) return null
-        return ensureWarmT4Runtime { msg ->
+        val session = ensureWarmT4Runtime { msg ->
             AppLogger.i(TAG, "Prewarm: $msg")
         }
+        runCatching { prefetchModelAsync(session, modelId) }
+            .onFailure { AppLogger.w(TAG, "Background model prefetch skipped: ${it.message}") }
+        return session
+    }
+
+    private suspend fun prefetchModelAsync(session: ColabRuntimeSession, modelId: String) {
+        val cleanModel = modelId.trim().ifBlank { "large-v3" }
+        val key = "${session.endpoint}|$cleanModel"
+        if (lastPrefetchedModelKey == key) return
+        lastPrefetchedModelKey = key
+
+        val safeModel = cleanModel.replace("\\", "").replace("'", "")
+        val launcherScript = """
+import os, subprocess, sys
+pidfile = '/content/.subcolab_prefetch.pid'
+if os.path.isfile(pidfile):
+    try:
+        pid = int(open(pidfile).read().strip())
+        os.kill(pid, 0)
+        raise SystemExit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+code = r'''
+import glob, os, shutil, subprocess, sys
+pidfile = '/content/.subcolab_prefetch.pid'
+deps_marker = '/content/.subcolab_deps_ok'
+model_cache = '/content/whisper_models'
+model_id = '$safeModel'
+try:
+    with open(pidfile, 'w') as f:
+        f.write(str(os.getpid()))
+    os.makedirs(model_cache, exist_ok=True)
+    need_install = False
+    try:
+        import faster_whisper, av, hf_transfer  # noqa
+        if int(str(getattr(av, '__version__', '99')).split('.', 1)[0]) >= 18:
+            need_install = True
+    except Exception:
+        need_install = True
+    if need_install:
+        pkgs = ['faster-whisper', 'av<18', 'ctranslate2', 'hf_transfer']
+        uv = shutil.which('uv')
+        cmd = [uv, 'pip', 'install', '--system', '-q', *pkgs] if uv else [sys.executable, '-m', 'pip', 'install', '-q', *pkgs]
+        subprocess.run(cmd, check=False)
+    try:
+        open(deps_marker, 'w').close()
+    except OSError:
+        pass
+    cached = any(glob.glob(os.path.join(d, '**', 'model.bin'), recursive=True) for d in glob.glob(os.path.join(model_cache, f'*{model_id}*')))
+    if not cached:
+        os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+        os.environ['HF_HUB_DISABLE_IMPLICIT_TOKEN'] = '1'
+        from faster_whisper.utils import download_model
+        try:
+            download_model(model_id, cache_dir=model_cache, local_files_only=False)
+        except Exception:
+            os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '0'
+            download_model(model_id, cache_dir=model_cache, local_files_only=False)
+finally:
+    try:
+        if os.path.isfile(pidfile):
+            os.remove(pidfile)
+    except OSError:
+        pass
+'''
+log_f = open('/content/.subcolab_prefetch.log', 'w')
+proc = subprocess.Popen([sys.executable, '-c', code], stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True)
+print('SUBCOLAB_PREFETCH_STARTED', proc.pid)
+""".trimIndent()
+
+        AppLogger.i(TAG, "Triggering detached Colab model pre-fetch for $cleanModel on ${session.endpoint}")
+        executeOnRuntime(
+            session = session,
+            workerScript = launcherScript,
+            envVars = emptyMap(),
+            onOutputLine = { line -> AppLogger.d(TAG, "Prefetch: $line") },
+        )
     }
 
     suspend fun ensureWarmT4Runtime(

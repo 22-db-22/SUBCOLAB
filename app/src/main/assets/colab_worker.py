@@ -41,6 +41,7 @@ MAX_HEIGHT        = max(360, min(1080, int(os.environ.get("SUBCOLAB_MAX_HEIGHT",
 CHUNK_SEC         = max(12, min(60, int(os.environ.get("SUBCOLAB_CHUNK_SEC", "20") or "20")))
 JOB_ID            = re.sub(r"[^A-Za-z0-9_-]", "", os.environ.get("SUBCOLAB_JOB_ID", "default").strip()) or "default"
 TOTAL_DUR_HINT    = float(os.environ.get("SUBCOLAB_TOTAL_DURATION_SEC", "0") or "0")
+RESUME_SEC        = max(0.0, float(os.environ.get("SUBCOLAB_RESUME_SEC", "0") or "0"))
 
 WORKDIR          = "/content/subcolab_job"
 QUEUE_DIR        = f"/content/subcolab_queue_{JOB_ID}"
@@ -50,7 +51,8 @@ COOKIES_PATH     = "/content/cookies.txt"
 ABORT_PATH       = "/content/subcolab_abort"
 EXPORT_MP4_PATH  = "/content/subcolab_mp4_export.mp4"
 WORKER_PIDFILE   = "/content/subcolab_worker.pid"
-DEPS_MARKER    = "/content/.subcolab_deps_ok"
+PREFETCH_PIDFILE = "/content/.subcolab_prefetch.pid"
+DEPS_MARKER      = "/content/.subcolab_deps_ok"
 DESKTOP_UA     = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -320,11 +322,47 @@ def _has_preinstalled_cuda_libs():
     return has_cublas, has_cudnn
 
 
+def _wait_for_prefetch_if_running(max_wait_sec: float = 150.0) -> None:
+    if not os.path.isfile(PREFETCH_PIDFILE):
+        return
+    try:
+        pid = int(open(PREFETCH_PIDFILE, encoding="utf-8").read().strip())
+    except Exception:
+        pid = -1
+    if pid <= 0 or pid == os.getpid():
+        try:
+            os.remove(PREFETCH_PIDFILE)
+        except OSError:
+            pass
+        return
+
+    t_start = time.time()
+    announced = False
+    while (time.time() - t_start) < max_wait_sec:
+        if abort_requested():
+            return
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        if not announced:
+            announced = True
+            status("Waiting for background Colab model pre-fetch to finish...")
+        time.sleep(1.0)
+
+    try:
+        os.remove(PREFETCH_PIDFILE)
+    except OSError:
+        pass
+
+
 def ensure_packages() -> None:
+    _wait_for_prefetch_if_running()
     need_ytdlp = COLAB_CHUNK_STREAM or ((not SKIP_COLAB_YT) and (not STREAMING_QUEUE) and (not os.environ.get("SUBCOLAB_LOCAL_AUDIO", "").strip()))
     status("Step 1/4: Checking Colab Python packages...")
 
     has_whisper_stack = False
+    has_hf_transfer = False
     try:
         import faster_whisper  # noqa: F401
         import av  # noqa: F401
@@ -333,7 +371,17 @@ def ensure_packages() -> None:
     except Exception:
         has_whisper_stack = False
 
+    try:
+        import hf_transfer  # noqa: F401
+        has_hf_transfer = True
+    except Exception:
+        has_hf_transfer = False
+
     if os.path.isfile(DEPS_MARKER) and has_whisper_stack:
+        if not has_hf_transfer:
+            uv_bin = shutil.which("uv")
+            cmd = [uv_bin, "pip", "install", "--system", "-q", "hf_transfer"] if uv_bin else [sys.executable, "-m", "pip", "install", "-q", "hf_transfer"]
+            subprocess.run(cmd, capture_output=True)
         _ensure_ffmpeg()
         if need_ytdlp:
             _ensure_ytdlp(upgrade=False)
@@ -341,6 +389,10 @@ def ensure_packages() -> None:
         return
 
     if has_whisper_stack and shutil.which("ffmpeg"):
+        if not has_hf_transfer:
+            uv_bin = shutil.which("uv")
+            cmd = [uv_bin, "pip", "install", "--system", "-q", "hf_transfer"] if uv_bin else [sys.executable, "-m", "pip", "install", "-q", "hf_transfer"]
+            subprocess.run(cmd, capture_output=True)
         if need_ytdlp:
             _ensure_ytdlp(upgrade=False)
         try:
@@ -356,6 +408,7 @@ def ensure_packages() -> None:
         "faster-whisper",
         "av<18",
         "ctranslate2",
+        "hf_transfer",
     ]
     if not has_cublas:
         pkgs.append("nvidia-cublas-cu12")
@@ -940,14 +993,56 @@ def wrap_subtitle(text: str) -> str:
     return "\n".join(lines)
 
 
+_HALLUCINATION_EXACT = {
+    "thank you",
+    "thanks",
+    "thank you very much",
+    "thank you so much",
+    "thanks for watching",
+    "thank you for watching",
+    "please subscribe",
+    "subscribe",
+    "like and subscribe",
+    "please like and subscribe",
+    "see you next time",
+    "bye",
+    "bye bye",
+    "amara.org",
+    "hmm",
+    "uh",
+    "um",
+    "mm-hmm",
+}
+
+_BRACKET_SFX_RE = re.compile(
+    r"[\[(]\s*(?:music|applause|laughter|cheering|silence|inaudible|blank_audio|sighs?|groans?|coughs?|noise|background noise|foreign)\s*[\])]",
+    re.IGNORECASE,
+)
+_HALLUCINATION_CREDITS_RE = re.compile(
+    r"(?:subtitles?|captioned|captioning|transcribed|translated)\s+by\b|amara\.org|www\.\S+\.(?:com|org|net)",
+    re.IGNORECASE,
+)
+
+
 def clean_text(raw_text: str, require_ascii: bool = True) -> str:
     text = re.sub(r"\s+", " ", raw_text or "").strip()
     if not text:
         return ""
     text = re.sub(r"[♪♫]+", "", text).strip()
+    text = _BRACKET_SFX_RE.sub("", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
     if require_ascii and not re.search(r"[A-Za-z0-9]", text):
+        return ""
+    norm = re.sub(r"[.!?,:;\"'~-]+$", "", text.lower()).strip()
+    if norm in _HALLUCINATION_EXACT:
+        return ""
+    if _HALLUCINATION_CREDITS_RE.search(text):
+        return ""
+    words = [re.sub(r"[^\w']", "", w) for w in norm.split()]
+    words = [w for w in words if w]
+    if len(words) >= 6 and len(set(words)) <= 2:
         return ""
     return text
 
@@ -1023,8 +1118,18 @@ def _build_audio_chunks(audio_arr, sr: int = 16000, target_sec: float = 45.0, fi
     return chunks
 
 
+def _has_cached_model_weights(model_id: str) -> bool:
+    for d in glob.glob(os.path.join(MODEL_CACHE, f"*{model_id}*")):
+        if os.path.isdir(d) and glob.glob(os.path.join(d, "**", "model.bin"), recursive=True):
+            return True
+    return False
+
+
 def _load_faster_whisper_model(device: str, compute_type: str):
+    import importlib.util
     from faster_whisper import WhisperModel
+
+    _wait_for_prefetch_if_running()
 
     model_store = globals().setdefault("_SUBCOLAB_MODEL_CACHE", {})
     cache_key = (MODEL_ID, device, compute_type)
@@ -1043,8 +1148,11 @@ def _load_faster_whisper_model(device: str, compute_type: str):
         except Exception:
             pass
 
-    cached_dirs = glob.glob(os.path.join(MODEL_CACHE, f"*{MODEL_ID}*"))
-    use_local_only = len(cached_dirs) > 0
+    use_local_only = _has_cached_model_weights(MODEL_ID)
+    has_hf_transfer = importlib.util.find_spec("hf_transfer") is not None
+    if has_hf_transfer:
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+
     t_load = time.time()
     stop_progress = threading.Event()
 
@@ -1060,7 +1168,7 @@ def _load_faster_whisper_model(device: str, compute_type: str):
         try:
             status(
                 f"Step 4/4: Loading faster-whisper {MODEL_ID} ({device}, {compute_type})"
-                + (" from local Colab cache..." if use_local_only else "...")
+                + (" from local Colab cache..." if use_local_only else (" with hf_transfer..." if has_hf_transfer else "..."))
             )
             model = WhisperModel(
                 MODEL_ID,
@@ -1070,14 +1178,28 @@ def _load_faster_whisper_model(device: str, compute_type: str):
                 local_files_only=use_local_only,
             )
         except Exception:
-            status(f"Step 4/4: Downloading faster-whisper {MODEL_ID} weights (~3 GB) to Colab T4...")
-            model = WhisperModel(
-                MODEL_ID,
-                device=device,
-                compute_type=compute_type,
-                download_root=MODEL_CACHE,
-                local_files_only=False,
-            )
+            speed_note = " (hf_transfer turbo)" if has_hf_transfer else ""
+            status(f"Step 4/4: Downloading faster-whisper {MODEL_ID} weights (~3 GB) to Colab T4{speed_note}...")
+            try:
+                model = WhisperModel(
+                    MODEL_ID,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=MODEL_CACHE,
+                    local_files_only=False,
+                )
+            except Exception:
+                if os.environ.get("HF_HUB_ENABLE_HF_TRANSFER") == "1":
+                    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+                    model = WhisperModel(
+                        MODEL_ID,
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=MODEL_CACHE,
+                        local_files_only=False,
+                    )
+                else:
+                    raise
     finally:
         stop_progress.set()
 
@@ -1087,6 +1209,8 @@ def _load_faster_whisper_model(device: str, compute_type: str):
 
 
 def _build_transcribe_runner(model, valid_codes):
+    import numpy as np
+
     lang_arg = normalize_language(SOURCE_LANG, valid_codes=valid_codes)
     state = {
         "lang_arg": lang_arg,
@@ -1094,10 +1218,25 @@ def _build_transcribe_runner(model, valid_codes):
         "reported_meta": False,
         "en_cue_idx": 0,
         "orig_cue_idx": 0,
+        "vad_disabled": False,
     }
     user_prompt = INITIAL_PROMPT or None
 
+    def _call_transcribe(sub_arr, kwargs):
+        try:
+            return model.transcribe(sub_arr, **kwargs)
+        except TypeError:
+            kwargs.pop("repetition_penalty", None)
+            if isinstance(kwargs.get("vad_parameters"), dict):
+                kwargs["vad_parameters"].pop("min_speech_duration_ms", None)
+            return model.transcribe(sub_arr, **kwargs)
+
     def run_chunk_pass(sub_arr, task_name: str, pass_lang, use_vad: bool, c_start: float, c_end: float, total_sec_hint: float = 0.0):
+        chunk_rms = float(np.sqrt(np.mean(sub_arr * sub_arr))) if len(sub_arr) > 0 else 0.0
+        if len(sub_arr) < 800 or chunk_rms < 0.0018:
+            return []
+
+        effective_vad = bool(use_vad and not state["vad_disabled"])
         patience = 1.4 if BEAM_SIZE >= 7 else 1.0
         kwargs = dict(
             language=pass_lang,
@@ -1107,27 +1246,36 @@ def _build_transcribe_runner(model, valid_codes):
             patience=patience,
             temperature=[0.0, 0.2, 0.4],
             compression_ratio_threshold=2.4,
-            log_prob_threshold=-1.2 if use_vad else -1.45,
-            no_speech_threshold=0.72 if use_vad else 0.85,
+            log_prob_threshold=-1.2 if effective_vad else -1.45,
+            no_speech_threshold=0.72 if effective_vad else 0.85,
             condition_on_previous_text=False,
             repetition_penalty=1.05,
             word_timestamps=False,
-            vad_filter=use_vad,
+            vad_filter=effective_vad,
             initial_prompt=user_prompt,
         )
-        if use_vad:
+        if effective_vad:
             kwargs["vad_parameters"] = dict(
-                threshold=0.28,
-                min_silence_duration_ms=450,
+                threshold=0.35,
+                min_silence_duration_ms=500,
+                min_speech_duration_ms=250,
                 max_speech_duration_s=8.0,
                 speech_pad_ms=250,
             )
 
         try:
-            seg_iter, info = model.transcribe(sub_arr, **kwargs)
-        except TypeError:
-            kwargs.pop("repetition_penalty", None)
-            seg_iter, info = model.transcribe(sub_arr, **kwargs)
+            seg_iter, info = _call_transcribe(sub_arr, kwargs)
+        except Exception as vad_exc:
+            if effective_vad:
+                state["vad_disabled"] = True
+                status(f"Silero VAD fallback ({vad_exc.__class__.__name__}) — using built-in silence guard.")
+                kwargs["vad_filter"] = False
+                kwargs.pop("vad_parameters", None)
+                kwargs["log_prob_threshold"] = -1.45
+                kwargs["no_speech_threshold"] = 0.85
+                seg_iter, info = _call_transcribe(sub_arr, kwargs)
+            else:
+                raise
 
         if not state["detected_lang"] and getattr(info, "language", None):
             state["detected_lang"] = str(info.language)
@@ -1147,7 +1295,8 @@ def _build_transcribe_runner(model, valid_codes):
             if abort_requested():
                 break
 
-            text = clean_text(getattr(seg, "text", ""), require_ascii=(task_name == "translate"))
+            raw_seg_text = getattr(seg, "text", "")
+            text = clean_text(raw_seg_text, require_ascii=(task_name == "translate"))
             if not text:
                 continue
 
@@ -1281,6 +1430,7 @@ def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
         state=state,
         run_chunk_pass=run_chunk_pass,
         total_sec_hint=total_sec,
+        min_emit_sec=RESUME_SEC,
     )
 
     # Pass 2: Original Language Transcript (using cached warm VRAM model & known language)
@@ -1291,6 +1441,8 @@ def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
         for cursor, (c_start, c_end) in enumerate(chunks):
             if abort_requested():
                 break
+            if RESUME_SEC > 0.0 and c_end <= RESUME_SEC + 0.25:
+                continue
             s0 = max(0, int(round(c_start * sr)))
             s1 = min(len(audio_arr), int(round(c_end * sr)))
             sub_arr = audio_arr[s0:s1]
@@ -1309,8 +1461,10 @@ def stream_faster_whisper(wav_path: str, device: str, compute_type: str) -> int:
                         orig_cues = retry_orig
 
             for abs_start, abs_end, text in orig_cues:
+                if RESUME_SEC > 0.0 and ((abs_start + abs_end) * 0.5 < RESUME_SEC or abs_end <= RESUME_SEC + 0.25):
+                    continue
                 state["orig_cue_idx"] += 1
-                emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
+                emit_srt_block(state["orig_cue_idx"], max(RESUME_SEC, abs_start) if RESUME_SEC > 0.0 else abs_start, abs_end, text, is_original=True)
 
     if not abort_requested():
         emit_line("@@SUBCOLAB_ALL_DONE@@")
@@ -1395,6 +1549,7 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
         state=state,
         run_chunk_pass=run_chunk_pass,
         total_sec_hint=total_sec,
+        min_emit_sec=RESUME_SEC,
     )
 
     if EMIT_ORIGINAL and not abort_requested() and state["detected_lang"] != "en":
@@ -1404,6 +1559,8 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
         for cursor, (c_start, c_end) in enumerate(chunks):
             if abort_requested():
                 break
+            if RESUME_SEC > 0.0 and c_end <= RESUME_SEC + 0.25:
+                continue
             s0 = max(0, int(round(c_start * sr)))
             s1 = min(len(audio_arr), int(round(c_end * sr)))
             sub_arr = audio_arr[s0:s1]
@@ -1422,8 +1579,10 @@ def run_colab_chunk_stream(device: str, compute_type: str, wav_path: str) -> int
                         orig_cues = retry_orig
 
             for abs_start, abs_end, text in orig_cues:
+                if RESUME_SEC > 0.0 and ((abs_start + abs_end) * 0.5 < RESUME_SEC or abs_end <= RESUME_SEC + 0.25):
+                    continue
                 state["orig_cue_idx"] += 1
-                emit_srt_block(state["orig_cue_idx"], abs_start, abs_end, text, is_original=True)
+                emit_srt_block(state["orig_cue_idx"], max(RESUME_SEC, abs_start) if RESUME_SEC > 0.0 else abs_start, abs_end, text, is_original=True)
 
     if not abort_requested():
         emit_line("@@SUBCOLAB_ALL_DONE@@")
@@ -1482,7 +1641,7 @@ def stream_queue_faster_whisper(device: str, compute_type: str) -> int:
                 audio_rel = meta.get("audio", "")
                 audio_path = audio_rel if os.path.isabs(audio_rel) else os.path.join(QUEUE_DIR, audio_rel)
                 offset_sec = float(meta.get("offset_sec", 0.0))
-                min_emit_sec = float(meta.get("min_emit_sec", 0.0))
+                min_emit_sec = max(RESUME_SEC, float(meta.get("min_emit_sec", 0.0)))
                 chunk_idx = int(meta.get("index", 0))
                 if not os.path.isfile(audio_path):
                     continue

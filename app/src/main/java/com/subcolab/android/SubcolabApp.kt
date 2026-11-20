@@ -124,7 +124,7 @@ class SubcolabApp : Application() {
         appScope.launch {
             runCatching {
                 AppLogger.i(TAG, "Background Colab T4 pre-warm requested ($reason)")
-                val session = colabClient.prewarmIfSignedIn()
+                val session = colabClient.prewarmIfSignedIn(settings.modelId)
                 if (session != null) {
                     coordinator.onPrewarmedSession(session)
                 }
