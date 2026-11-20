@@ -1,0 +1,15 @@
+# SUBCOLAB Android - YouTube Stream Extraction Reference (YouTube-VLC)
+# Order of yt-dlp extractor player_client attempts for stream resolution & audio relay:
+# 1. ios
+# 2. mweb
+# 3. tv_embedded
+# 4. tv
+# 5. android_vr
+# 6. default
+#
+# Combined <=720p preference (zero muxing failures):
+#   best[height<=720][height>=480][vcodec!=none][acodec!=none]/best[height<=720][vcodec!=none][acodec!=none]
+# Split 720p fallback (passed to libmpv via audio-file):
+#   bestvideo[height<=720][vcodec!=none] + bestaudio[acodec!=none]
+# Ultimate 360p fallback:
+#   18/best[vcodec!=none][acodec!=none]/best
