@@ -45,15 +45,49 @@ jobs:
         id: sign_apk
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         if: env.SIGNING_KEY != ''
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          buildToolsVersion: '35.0.0'
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BUILD_TOOLS_DIR="$SDK_DIR/build-tools/35.0.0"
+          if [ ! -x "$BUILD_TOOLS_DIR/apksigner" ]; then
+            BUILD_TOOLS_DIR=$(ls -d "$SDK_DIR/build-tools/"* | sort -V | tail -n 1)
+          fi
+
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No release APK found in app/build/outputs/apk/release" >&2
+            exit 1
+          fi
+
+          KEYSTORE_FILE=$(mktemp /tmp/subcolab-release-XXXXXX.jks)
+          trap 'rm -f "$KEYSTORE_FILE"' EXIT
+          printf '%s' "$SIGNING_KEY" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_FILE"
+
+          if [ -z "${KEY_PASSWORD:-}" ]; then
+            export KEY_PASSWORD="$KEY_STORE_PASSWORD"
+          fi
+
+          ALIGNED_APK="${UNSIGNED_APK%.apk}-aligned.apk"
+          SIGNED_APK="${UNSIGNED_APK%-unsigned.apk}.apk"
+          if [ "$SIGNED_APK" = "$UNSIGNED_APK" ]; then
+            SIGNED_APK="${UNSIGNED_APK%.apk}-signed.apk"
+          fi
+
+          "$BUILD_TOOLS_DIR/zipalign" -p -f 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$KEYSTORE_FILE" \
+            --ks-key-alias "$ALIAS" \
+            --ks-pass env:KEY_STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose "$SIGNED_APK"
+          rm -f "$ALIGNED_APK" "$UNSIGNED_APK"
+          echo "signedReleaseFile=$SIGNED_APK" >> "$GITHUB_OUTPUT"
 
       - name: Upload SUBCOLAB Release APK
         uses: actions/upload-artifact@v4
