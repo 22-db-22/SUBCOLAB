@@ -176,15 +176,62 @@ enum class JobPhase {
     ERROR,
 }
 
+object WhisperModels {
+    const val DEFAULT_MODEL_ID = "large-v3"
+    const val TURBO_MODEL_ID = "large-v3-turbo"
+
+    val allowed: List<Pair<String, String>> = listOf(
+        DEFAULT_MODEL_ID to "large-v3 (Best)",
+        TURBO_MODEL_ID to "turbo (Fast)",
+    )
+
+    fun normalize(raw: String?): String {
+        val trimmed = raw?.trim().orEmpty()
+        return if (trimmed.equals(TURBO_MODEL_ID, ignoreCase = true) || trimmed.equals("turbo", ignoreCase = true)) {
+            TURBO_MODEL_ID
+        } else {
+            DEFAULT_MODEL_ID
+        }
+    }
+}
+
 @Serializable
 data class SubtitleRetranslateOptions(
     val sourceLang: String = "auto",
     val cleanAudio: Boolean = false,
     val vocalBoost: Boolean = false,
     val includeOriginal: Boolean = false,
-    val modelId: String = "large-v3",
+    val modelId: String = WhisperModels.DEFAULT_MODEL_ID,
     val beamSize: Int = 5,
     val initialPrompt: String = "",
+)
+
+@Serializable
+data class QueuedJobItem(
+    val queueId: String,
+    val rawUrl: String,
+    val normalizedUrl: String,
+    val titleSlug: String,
+    val sourceLang: String = "auto",
+    val mode: WorkflowMode = WorkflowMode.WATCH_NOW,
+    val fromExternalShare: Boolean = false,
+    val subtitleOptions: SubtitleRetranslateOptions = SubtitleRetranslateOptions(),
+    val enqueuedAtMs: Long = System.currentTimeMillis(),
+)
+
+data class ReadyQueuedOffer(
+    val queueId: String,
+    val packId: String,
+    val titleSlug: String,
+    val cueCount: Int,
+    val origCueCount: Int = 0,
+    val detectedOrigLang: String? = null,
+    val isLiveStreaming: Boolean = false,
+    val isComplete: Boolean = false,
+    val playableVideoSource: String,
+    val playableAudioSource: String? = null,
+    val enSrtPath: String? = null,
+    val origSrtPath: String? = null,
 )
 
 @Serializable
@@ -227,6 +274,9 @@ data class SavedPack(
     val internalEnSrtPath: String? = null,
     val internalOrigSrtPath: String? = null,
     val internalVideoPath: String? = null,
+    val thumbnailUrl: String? = null,
+    val thumbnailPath: String? = null,
+    val isCancelled: Boolean = false,
     val createdAtMs: Long,
 ) {
     val effectiveId: String
@@ -315,6 +365,10 @@ data class JobProgressState(
     val savedPacks: List<SavedPack> = emptyList(),
     val logTail: List<String> = emptyList(),
     val resumeFromSec: Double = 0.0,
+    val queuedJobs: List<QueuedJobItem> = emptyList(),
+    val readyQueuedOffers: List<ReadyQueuedOffer> = emptyList(),
+    val activeJobQueueId: String? = null,
+    val isActiveJobQueued: Boolean = false,
 ) {
     val resumableFromSec: Double
         get() = maxOf(
@@ -326,16 +380,16 @@ data class JobProgressState(
 
 @Serializable
 enum class ThemeMode(val label: String) {
+    SYSTEM("System"),
     SOFT_DARK("Soft Dark"),
     LIGHT("Light"),
     DARK("Dark"),
-    SYSTEM("System"),
 }
 
 @Serializable
 data class AppSettings(
     val cleanAudio: Boolean = false,
-    val modelId: String = "large-v3",
+    val modelId: String = WhisperModels.DEFAULT_MODEL_ID,
     val useCustomTunnel: Boolean = false,
     val customTunnelUrl: String = "",
     val customTunnelToken: String = "",
@@ -346,5 +400,6 @@ data class AppSettings(
     val subtitleDelaySec: Float = 0f,
     val subtitleBorderSize: Int = 3,
     val subtitleBoxEnabled: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.SOFT_DARK,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val quickTipsDismissed: Boolean = false,
 )

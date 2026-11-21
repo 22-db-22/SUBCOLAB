@@ -33,13 +33,16 @@ object MediaStoreSaver {
         return (if (cut.length >= 12) cut else cleaned.take(40)).trim('_').ifBlank { "SUBCOLAB_Video" }
     }
 
+    private fun cleanSubfolder(subfolder: String): String =
+        subfolder.trim().trim('/').replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_')
+
     private fun resolveRelativePath(subfolder: String): String {
-        val cleanSub = subfolder.trim().trim('/').replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_')
+        val cleanSub = cleanSubfolder(subfolder)
         return if (cleanSub.isBlank()) ROOT_RELATIVE else "$ROOT_RELATIVE/$cleanSub"
     }
 
     private fun resolveDisplayPath(subfolder: String, fileName: String): String {
-        val cleanSub = subfolder.trim().trim('/').replace(Regex("[^A-Za-z0-9._-]+"), "_").trim('_')
+        val cleanSub = cleanSubfolder(subfolder)
         return if (cleanSub.isBlank()) {
             "Downloads/$ROOT_FOLDER_NAME/$fileName"
         } else {
@@ -123,13 +126,14 @@ object MediaStoreSaver {
     }
 
     fun deleteSubfolderIfEmpty(subfolder: String) {
-        if (subfolder.isBlank() || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
+        val cleanSub = cleanSubfolder(subfolder)
+        if (cleanSub.isBlank()) return
         runCatching {
             val dir = File(
                 File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), ROOT_FOLDER_NAME),
-                subfolder,
+                cleanSub,
             )
-            if (dir.isDirectory && dir.listFiles().isNullOrEmpty()) {
+            if (dir.isDirectory && dir.list().isNullOrEmpty()) {
                 dir.delete()
             }
         }

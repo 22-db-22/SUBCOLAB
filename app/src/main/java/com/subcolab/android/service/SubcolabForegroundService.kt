@@ -19,8 +19,18 @@ import com.subcolab.android.util.AppLogger
 
 class ReadyDismissReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        SubcolabForegroundService.cancelReadyNotification(context)
         val app = context.applicationContext as? SubcolabApp
+        if (intent?.action == SubcolabForegroundService.ACTION_CANCEL_QUEUED ||
+            intent?.action == SubcolabForegroundService.ACTION_HIDE_QUEUED
+        ) {
+            val queueId = intent.getStringExtra(SubcolabForegroundService.EXTRA_QUEUE_ID).orEmpty()
+            if (queueId.isNotBlank()) {
+                SubcolabForegroundService.cancelQueuedNotification(context, queueId)
+                app?.coordinator?.cancelQueuedReadyOffer(queueId)
+            }
+            return
+        }
+        SubcolabForegroundService.cancelReadyNotification(context)
         app?.coordinator?.dismissReadyPrompt()
     }
 }
@@ -33,13 +43,46 @@ class SubcolabForegroundService : Service() {
         const val ACTION_CANCEL_JOB = "com.subcolab.android.action.CANCEL_JOB"
         const val ACTION_STOP_GPU = "com.subcolab.android.action.STOP_GPU"
         const val ACTION_DISMISS_READY = "com.subcolab.android.action.DISMISS_READY"
+        const val ACTION_CANCEL_QUEUED = "com.subcolab.android.action.CANCEL_QUEUED"
+        const val ACTION_HIDE_QUEUED = "com.subcolab.android.action.HIDE_QUEUED"
+        const val EXTRA_QUEUE_ID = "com.subcolab.android.extra.QUEUE_ID"
         private const val NOTIFICATION_PROGRESS_ID = 1001
         const val NOTIFICATION_READY_ID = 1002
+        private const val NOTIFICATION_QUEUED_BASE_ID = 1100
+
+        private val activeQueuedNotificationIds = mutableSetOf<Int>()
+
+        fun queuedNotificationId(queueId: String): Int =
+            NOTIFICATION_QUEUED_BASE_ID + ((queueId.hashCode() and 0x7FFFFFFF) % 900)
 
         fun cancelReadyNotification(context: Context) {
             runCatching {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.cancel(NOTIFICATION_READY_ID)
+            }
+        }
+
+        fun cancelQueuedNotification(context: Context, queueId: String) {
+            if (queueId.isBlank()) return
+            val id = queuedNotificationId(queueId)
+            synchronized(activeQueuedNotificationIds) {
+                activeQueuedNotificationIds.remove(id)
+            }
+            runCatching {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.cancel(id)
+            }
+        }
+
+        fun cancelAllQueuedNotifications(context: Context) {
+            val ids = synchronized(activeQueuedNotificationIds) {
+                val copy = activeQueuedNotificationIds.toList()
+                activeQueuedNotificationIds.clear()
+                copy
+            }
+            runCatching {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                ids.forEach { nm.cancel(it) }
             }
         }
     }
@@ -68,12 +111,13 @@ class SubcolabForegroundService : Service() {
         app.coordinator.attachServiceCallbacks(
             onProgressNotify = { title, body, ongoing ->
                 runCatching {
-                    if (!ongoing) {
+                    val stillOngoing = ongoing || app.coordinator.hasQueuedJobs()
+                    if (!stillOngoing) {
                         stopForeground(STOP_FOREGROUND_DETACH)
                     }
                     notificationManager.notify(
                         NOTIFICATION_PROGRESS_ID,
-                        buildProgressNotification(title, body, ongoing),
+                        buildProgressNotification(title, body, stillOngoing),
                     )
                 }.onFailure { err ->
                     AppLogger.w(TAG, "Progress notify failed", err)
@@ -81,13 +125,20 @@ class SubcolabForegroundService : Service() {
             },
             onPlayerReadyNotify = { titleSlug, cueCount, isComplete, isLiveStream, useFullScreenIntent ->
                 runCatching {
-                    if (isComplete) {
+                    if (isComplete && !app.coordinator.hasQueuedJobs()) {
                         stopForeground(STOP_FOREGROUND_DETACH)
                         notificationManager.cancel(NOTIFICATION_PROGRESS_ID)
                     }
                     postPlayerReadyNotification(titleSlug, cueCount, isComplete, isLiveStream, useFullScreenIntent)
                 }.onFailure { err ->
                     AppLogger.w(TAG, "PlayerReady notify failed", err)
+                }
+            },
+            onQueuedReadyNotify = { queueId, titleSlug, cueCount, isComplete, isLiveStream ->
+                runCatching {
+                    postQueuedReadyNotification(queueId, titleSlug, cueCount, isComplete, isLiveStream)
+                }.onFailure { err ->
+                    AppLogger.w(TAG, "QueuedReady notify failed", err)
                 }
             },
         )
@@ -242,5 +293,55 @@ class SubcolabForegroundService : Service() {
             builder.setFullScreenIntent(openPlayerPending, true)
         }
         notificationManager.notify(NOTIFICATION_READY_ID, builder.build())
+    }
+
+    private fun postQueuedReadyNotification(
+        queueId: String,
+        titleSlug: String,
+        cueCount: Int,
+        isComplete: Boolean,
+        isLiveStream: Boolean,
+    ) {
+        val notifId = queuedNotificationId(queueId)
+        synchronized(activeQueuedNotificationIds) {
+            activeQueuedNotificationIds.add(notifId)
+        }
+        val baseReq = 2000 + ((queueId.hashCode() and 0x7FFFFFFF) % 4000) * 2
+        val watchNowPending = PendingIntent.getActivity(
+            this,
+            baseReq,
+            MainActivity.createSwitchToQueuedIntent(this, queueId),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val cancelQueuedPending = PendingIntent.getBroadcast(
+            this,
+            baseReq + 1,
+            Intent(this, ReadyDismissReceiver::class.java).apply {
+                action = ACTION_CANCEL_QUEUED
+                putExtra(EXTRA_QUEUE_ID, queueId)
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        val cleanTitle = titleSlug.replace('_', ' ')
+        val titleText = "Queued video open to Watch Now ($cueCount cues)"
+        val bodyText = when {
+            isComplete -> "$cleanTitle — Ready. Tap Watch Now to switch, or Cancel Job to cancel and start next queued video."
+            isLiveStream -> "$cleanTitle — Live stream ready ($cueCount cues). Tap Watch Now to switch, or Cancel Job to cancel and start next queued video."
+            else -> "$cleanTitle — Ready ($cueCount cues). Tap Watch Now to switch or Cancel Job."
+        }
+        val builder = NotificationCompat.Builder(this, SubcolabApp.CHANNEL_READY_ID)
+            .setSmallIcon(R.drawable.ic_stat_subcolab)
+            .setContentTitle(titleText)
+            .setContentText(cleanTitle)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
+            .setAutoCancel(true)
+            .setContentIntent(watchNowPending)
+            .addAction(0, "Watch Now", watchNowPending)
+            .addAction(0, "Cancel Job", cancelQueuedPending)
+
+        notificationManager.notify(notifId, builder.build())
     }
 }

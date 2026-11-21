@@ -1,17 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  QUICK_LANG_CHIPS,
+  QUICK_TIPS_DISMISSED_KEY,
+  WHISPER_MODELS,
   WORKFLOW_MODES,
+  cancelActiveJob,
+  cancelReadyOffer,
   chooseSubtitleStrategy,
+  completeActiveAndPromoteQueue,
   computeAdaptiveAudioChunkSec,
   computeResumeOffsetSec,
+  createInitialQueueState,
+  deleteSavedPackById,
   extractAndUnwrapUrl,
   filterWhisperHallucination,
   formatMmSs,
   formatSubtitleDelay,
   isTimestampTranslated,
+  normalizeWhisperModel,
+  onActiveJobMediaReady,
   parseVttOrSrtCues,
+  persistQuickTipsDismissed,
+  readQuickTipsDismissed,
+  redownloadPackInSim,
+  removeQueuedJobById,
   searchWhisperLanguages,
+  submitJobToQueueState,
+  switchToReadyOffer,
 } from './subcolabLogic';
 
 test('unwraps google goto and normalizes YouTube shorts and live links', () => {
@@ -91,4 +108,163 @@ test('computes checkpoint resume offset and formats subtitle delay', () => {
   assert.equal(formatSubtitleDelay(1.5), '+1.5s');
   assert.equal(formatSubtitleDelay(-0.5), '-0.5s');
 });
+
+test('restricts Whisper models to large-v3 (default) and large-v3-turbo with safe share defaults', () => {
+  assert.deepEqual(
+    WHISPER_MODELS.map((m) => m.id),
+    ['large-v3', 'large-v3-turbo'],
+  );
+  assert.equal(normalizeWhisperModel('medium'), 'large-v3');
+  assert.equal(normalizeWhisperModel('turbo'), 'large-v3-turbo');
+  assert.equal(normalizeWhisperModel('large-v3-turbo'), 'large-v3-turbo');
+  assert.equal(normalizeWhisperModel(''), 'large-v3');
+  assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.modelId, 'large-v3');
+  assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.cleanAudio, false);
+  assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.vocalBoost, false);
+  assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.highPrecisionBeam, false);
+  assert.equal(DEFAULT_SHARE_SUBTITLE_OPTIONS.includeOriginal, false);
+  assert.deepEqual(
+    QUICK_LANG_CHIPS.map((c) => c.shortLabel),
+    ['Auto', 'Chinese', 'Korean', 'Jap'],
+  );
+});
+
+test('queues jobs sequentially, promotes Queued No. 1, and offers non-interrupting Watch Now / Cancel Job', () => {
+  let qState = createInitialQueueState();
+
+  // Start Job 1 (Watch Now) immediately
+  const r1 = submitJobToQueueState(qState, {
+    id: 'job1',
+    url: 'https://www.dailymotion.com/video/video1',
+    title: 'Video 1',
+    mode: 'WATCH_NOW',
+    options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  });
+  qState = r1.state;
+  assert.equal(r1.queuePosition, 0);
+  assert.equal(qState.activeJob?.id, 'job1');
+
+  // Job 1 ready -> auto-opens player
+  qState = onActiveJobMediaReady(qState, 4);
+  assert.equal(qState.shouldAutoOpenPlayer, true);
+  assert.equal(qState.playingVideo?.id, 'job1');
+
+  // Queue Job 2 (Watch Now) -> Queued No. 1
+  const r2 = submitJobToQueueState(qState, {
+    id: 'job2',
+    url: 'https://vimeo.com/222222',
+    title: 'Video 2',
+    mode: 'WATCH_NOW',
+    options: { ...DEFAULT_SHARE_SUBTITLE_OPTIONS, modelId: 'large-v3-turbo', vocalBoost: true },
+  });
+  qState = r2.state;
+  assert.equal(r2.queuePosition, 1);
+
+  // Queue Job 3 (Download) -> Queued No. 2
+  const r3 = submitJobToQueueState(qState, {
+    id: 'job3',
+    url: 'https://www.bilibili.com/video/BV3',
+    title: 'Video 3',
+    mode: 'DOWNLOAD_AND_TRANSLATE',
+    options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  });
+  qState = r3.state;
+  assert.equal(r3.queuePosition, 2);
+  assert.equal(qState.queuedJobs.length, 2);
+
+  // Job 1 finishes downloading+translating -> Queued No. 1 promotes to activeJob, Queued No. 2 shifts to 1st
+  qState = completeActiveAndPromoteQueue(qState, 5);
+  assert.equal(qState.activeJob?.id, 'job2');
+  assert.equal(qState.activeJob?.isFromQueue, true);
+  assert.equal(qState.queuedJobs.length, 1);
+  assert.equal(qState.queuedJobs[0].queueId, 'job3');
+
+  // Job 2 becomes ready -> must NOT interrupt Video 1, emits ReadyQueuedOffer instead
+  qState = onActiveJobMediaReady(qState, 4);
+  assert.equal(qState.shouldAutoOpenPlayer, false);
+  assert.equal(qState.playingVideo?.id, 'job1');
+  assert.equal(qState.readyOffers.length, 1);
+  assert.equal(qState.readyOffers[0].queueId, 'job2');
+
+  // User clicks Watch Now -> switches playback from Video 1 to Video 2 and clears offer
+  qState = switchToReadyOffer(qState, 'job2');
+  assert.equal(qState.playingVideo?.id, 'job2');
+  assert.equal(qState.readyOffers.length, 0);
+
+  // Job 2 finishes -> Job 3 (Download) promotes to active, emits NO Watch Now offer when media ready
+  qState = completeActiveAndPromoteQueue(qState, 5);
+  assert.equal(qState.activeJob?.id, 'job3');
+  qState = onActiveJobMediaReady(qState, 4);
+  assert.equal(qState.readyOffers.length, 0);
+  assert.equal(qState.playingVideo?.id, 'job2');
+
+  // Removing a queued item cancels it and preserves it in Downloads (savedPacks) with a thumbnail
+  const r4 = submitJobToQueueState(qState, {
+    id: 'job4',
+    url: 'https://vimeo.com/444',
+    title: 'Video 4',
+    mode: 'WATCH_NOW',
+    options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  });
+  qState = removeQueuedJobById(r4.state, 'job4');
+  assert.equal(qState.queuedJobs.length, 0);
+  const canceledJob4 = qState.savedPacks.find((p) => p.id === 'job4');
+  assert.equal(canceledJob4?.status, 'canceled');
+  assert.equal(canceledJob4?.thumbnailDataUrl.startsWith('data:image/svg+xml'), true);
+
+  // Cancel Job on ready queued offer cancels active job2X, keeps playback untouched, promotes queued job5, and saves canceled pack
+  qState = {
+    ...qState,
+    activeJob: {
+      id: 'jobX',
+      title: 'Offer X',
+      url: 'https://vimeo.com/9',
+      mode: 'WATCH_NOW',
+      options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+      isFromQueue: true,
+      cueCount: 4,
+      status: 'running',
+    },
+    queuedJobs: [
+      {
+        queueId: 'job5',
+        title: 'Video 5',
+        url: 'https://vimeo.com/555',
+        mode: 'DOWNLOAD_AND_TRANSLATE',
+        options: DEFAULT_SHARE_SUBTITLE_OPTIONS,
+      },
+    ],
+    readyOffers: [{ queueId: 'jobX', title: 'Offer X', url: 'https://vimeo.com/9', cueCount: 4, modelId: 'large-v3' }],
+  };
+  qState = cancelReadyOffer(qState, 'jobX');
+  assert.equal(qState.readyOffers.length, 0);
+  assert.equal(qState.playingVideo?.id, 'job2');
+  assert.equal(qState.activeJob?.id, 'job5');
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.status, 'canceled');
+
+  // Re-downloading video and subtitles on canceled pack restores saved status, and delete removes it
+  qState = redownloadPackInSim(qState, 'jobX', 'video');
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.hasVideo, true);
+  assert.equal(qState.savedPacks.find((p) => p.id === 'jobX')?.status, 'saved');
+  qState = cancelActiveJob(qState);
+  assert.equal(qState.activeJob, null);
+  assert.equal(qState.savedPacks.find((p) => p.id === 'job5')?.status, 'canceled');
+  qState = deleteSavedPackById(qState, 'jobX');
+  assert.equal(qState.savedPacks.some((p) => p.id === 'jobX'), false);
+});
+
+test('persists Quick Tips dismissal across reloads', () => {
+  const map = new Map<string, string>();
+  const mockStorage = {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      map.set(k, v);
+    },
+  };
+  assert.equal(readQuickTipsDismissed(mockStorage), false);
+  persistQuickTipsDismissed(mockStorage);
+  assert.equal(map.get(QUICK_TIPS_DISMISSED_KEY), '1');
+  assert.equal(readQuickTipsDismissed(mockStorage), true);
+});
+
 

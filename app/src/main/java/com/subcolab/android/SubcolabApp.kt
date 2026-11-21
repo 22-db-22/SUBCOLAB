@@ -121,6 +121,9 @@ class SubcolabApp : Application() {
     fun prewarmT4IfSignedIn(reason: String) {
         val settings = settingsRepository.settings.value
         if (settings.useCustomTunnel || !authManager.isSignedIn()) return
+        if (reason == "share_overlay" && coordinator.hasActiveJob() && colabClient.activeSession != null) {
+            return
+        }
         appScope.launch {
             runCatching {
                 AppLogger.i(TAG, "Background Colab T4 pre-warm requested ($reason)")

@@ -28,14 +28,15 @@ export const WORKFLOW_MODES: WorkflowModeInfo[] = [
 export interface WhisperLang {
   code: string;
   name: string;
+  shortLabel?: string;
   aliases?: string[];
 }
 
 export const QUICK_LANG_CHIPS: WhisperLang[] = [
-  { code: 'auto', name: 'Auto-Detect', aliases: ['detect'] },
-  { code: 'zh', name: 'Chinese', aliases: ['mandarin', 'cn'] },
-  { code: 'ko', name: 'Korean', aliases: ['kr', 'hangul'] },
-  { code: 'ja', name: 'Japanese', aliases: ['jp', 'nihongo'] },
+  { code: 'auto', name: 'Auto-Detect', shortLabel: 'Auto', aliases: ['detect'] },
+  { code: 'zh', name: 'Chinese', shortLabel: 'Chinese', aliases: ['mandarin', 'cn'] },
+  { code: 'ko', name: 'Korean', shortLabel: 'Korean', aliases: ['kr', 'hangul'] },
+  { code: 'ja', name: 'Japanese', shortLabel: 'Jap', aliases: ['jp', 'nihongo', 'jap'] },
 ];
 
 export const WHISPER_LANGUAGES: WhisperLang[] = [
@@ -301,4 +302,528 @@ export function formatSubtitleDelay(delaySec: number): string {
   if (Math.abs(delaySec) < 0.05) return '0.0s';
   return `${delaySec > 0 ? '+' : ''}${delaySec.toFixed(1)}s`;
 }
+
+export type WhisperModelId = 'large-v3' | 'large-v3-turbo';
+
+export const WHISPER_MODELS: { id: WhisperModelId; label: string }[] = [
+  { id: 'large-v3', label: 'large-v3 (Best)' },
+  { id: 'large-v3-turbo', label: 'turbo (Fast)' },
+];
+
+export function normalizeWhisperModel(raw?: string | null): WhisperModelId {
+  const trimmed = (raw ?? '').trim().toLowerCase();
+  if (trimmed === 'large-v3-turbo' || trimmed === 'turbo') {
+    return 'large-v3-turbo';
+  }
+  return 'large-v3';
+}
+
+export interface ShareSubtitleOptions {
+  sourceLang: string;
+  modelId: WhisperModelId;
+  cleanAudio: boolean;
+  vocalBoost: boolean;
+  highPrecisionBeam: boolean;
+  includeOriginal: boolean;
+}
+
+export const DEFAULT_SHARE_SUBTITLE_OPTIONS: ShareSubtitleOptions = {
+  sourceLang: 'auto',
+  modelId: 'large-v3',
+  cleanAudio: false,
+  vocalBoost: false,
+  highPrecisionBeam: false,
+  includeOriginal: false,
+};
+
+export interface QueuedJob {
+  queueId: string;
+  title: string;
+  url: string;
+  mode: WorkflowModeId;
+  options: ShareSubtitleOptions;
+}
+
+export interface ReadyQueuedOffer {
+  queueId: string;
+  title: string;
+  url: string;
+  cueCount: number;
+  modelId: WhisperModelId;
+}
+
+export interface ActiveSimJob {
+  id: string;
+  title: string;
+  url: string;
+  mode: WorkflowModeId;
+  options: ShareSubtitleOptions;
+  isFromQueue: boolean;
+  cueCount: number;
+  status: 'running' | 'completed';
+}
+
+export interface PlayingSimVideo {
+  id: string;
+  title: string;
+  url: string;
+  cueCount: number;
+  modelId: WhisperModelId;
+}
+
+export interface SavedPackSim {
+  id: string;
+  title: string;
+  url: string;
+  sourceLang: string;
+  modelId: WhisperModelId;
+  hasVideo: boolean;
+  cueCount: number;
+  status: 'saved' | 'canceled';
+  thumbnailDataUrl: string;
+  thumbLabel: string;
+}
+
+export interface QueueSimulationState {
+  activeJob: ActiveSimJob | null;
+  queuedJobs: QueuedJob[];
+  readyOffers: ReadyQueuedOffer[];
+  playingVideo: PlayingSimVideo | null;
+  savedPacks: SavedPackSim[];
+  shouldAutoOpenPlayer: boolean;
+}
+
+export function buildSampleThumbnailDataUrl(
+  title: string,
+  badgeLabel: string,
+  isFallbackFrame = false,
+): string {
+  const safeTitle = (title || 'SUBCOLAB Video').replace(/[<>&"']/g, '').slice(0, 20);
+  const safeBadge = badgeLabel.replace(/[<>&"']/g, '').slice(0, 14);
+  const bgA = isFallbackFrame ? '#1E293B' : '#132A24';
+  const bgB = isFallbackFrame ? '#0F172A' : '#0B1622';
+  const accent = isFallbackFrame ? '#38BDF8' : '#FFFF00';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="192" height="108" viewBox="0 0 192 108"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${bgA}"/><stop offset="100%" stop-color="${bgB}"/></linearGradient></defs><rect width="192" height="108" rx="10" fill="url(#g)"/><circle cx="96" cy="48" r="18" fill="rgba(255,255,255,0.12)" stroke="${accent}" stroke-width="2"/><polygon points="91,40 106,48 91,56" fill="${accent}"/><rect x="8" y="8" width="66" height="16" rx="4" fill="rgba(0,0,0,0.65)"/><text x="13" y="19" font-family="sans-serif" font-size="9" font-weight="bold" fill="${accent}">${safeBadge}</text><rect x="8" y="82" width="176" height="18" rx="4" fill="rgba(0,0,0,0.7)"/><text x="14" y="94" font-family="sans-serif" font-size="10" font-weight="600" fill="#FFFFFF">${safeTitle}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function upsertSavedPack(packs: SavedPackSim[], next: SavedPackSim): SavedPackSim[] {
+  const existingIdx = packs.findIndex((p) => p.id === next.id);
+  if (existingIdx < 0) return [next, ...packs];
+  const prev = packs[existingIdx];
+  const merged: SavedPackSim = {
+    ...prev,
+    ...next,
+    hasVideo: prev.hasVideo || next.hasVideo,
+    cueCount: Math.max(prev.cueCount, next.cueCount),
+    status: next.status === 'saved' || prev.hasVideo || next.hasVideo ? next.status : 'canceled',
+  };
+  return [merged, ...packs.filter((p) => p.id !== next.id)];
+}
+
+export function createInitialQueueState(): QueueSimulationState {
+  return {
+    activeJob: null,
+    queuedJobs: [],
+    readyOffers: [],
+    playingVideo: null,
+    savedPacks: [],
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function buildShortTitleFromUrl(rawUrl: string): string {
+  try {
+    const u = new URL(extractAndUnwrapUrl(rawUrl));
+    const seg = u.pathname.split('/').filter(Boolean).pop();
+    if (seg && seg.toLowerCase() !== 'watch') {
+      return `${u.hostname.replace(/^www\./, '').split('.')[0]}_${seg}`.slice(0, 28);
+    }
+    const v = u.searchParams.get('v');
+    if (v) return `youtube_${v}`.slice(0, 28);
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return rawUrl.slice(0, 28) || 'video';
+  }
+}
+
+export function submitJobToQueueState(
+  state: QueueSimulationState,
+  params: {
+    id: string;
+    url: string;
+    title?: string;
+    mode: WorkflowModeId;
+    options: ShareSubtitleOptions;
+  },
+): { state: QueueSimulationState; queuePosition: number } {
+  const cleanUrl = extractAndUnwrapUrl(params.url);
+  const title = params.title?.trim() || buildShortTitleFromUrl(cleanUrl);
+  const normalizedOptions: ShareSubtitleOptions = {
+    ...params.options,
+    sourceLang: params.options.sourceLang || 'auto',
+    modelId: normalizeWhisperModel(params.options.modelId),
+  };
+
+  if (state.activeJob && state.activeJob.status === 'running') {
+    const queued: QueuedJob = {
+      queueId: params.id,
+      title,
+      url: cleanUrl,
+      mode: params.mode,
+      options: normalizedOptions,
+    };
+    const nextQueue = [...state.queuedJobs, queued];
+    return {
+      state: {
+        ...state,
+        queuedJobs: nextQueue,
+        shouldAutoOpenPlayer: false,
+      },
+      queuePosition: nextQueue.length,
+    };
+  }
+
+  return {
+    state: {
+      ...state,
+      activeJob: {
+        id: params.id,
+        title,
+        url: cleanUrl,
+        mode: params.mode,
+        options: normalizedOptions,
+        isFromQueue: false,
+        cueCount: 0,
+        status: 'running',
+      },
+      shouldAutoOpenPlayer: false,
+    },
+    queuePosition: 0,
+  };
+}
+
+export function onActiveJobMediaReady(
+  state: QueueSimulationState,
+  cueCount: number,
+): QueueSimulationState {
+  const active = state.activeJob;
+  if (!active || active.status !== 'running') return state;
+
+  const updatedActive: ActiveSimJob = { ...active, cueCount };
+  if (active.mode !== 'WATCH_NOW') {
+    return { ...state, activeJob: updatedActive, shouldAutoOpenPlayer: false };
+  }
+
+  if (!active.isFromQueue && !state.playingVideo) {
+    return {
+      ...state,
+      activeJob: updatedActive,
+      playingVideo: {
+        id: active.id,
+        title: active.title,
+        url: active.url,
+        cueCount,
+        modelId: active.options.modelId,
+      },
+      shouldAutoOpenPlayer: true,
+    };
+  }
+
+  // Queued Watch Now job must NOT interrupt current playback; offer top notification ("Watch Now" / "Hide")
+  const alreadyOffered = state.readyOffers.some((o) => o.queueId === active.id);
+  const nextOffers = alreadyOffered
+    ? state.readyOffers.map((o) => (o.queueId === active.id ? { ...o, cueCount } : o))
+    : [
+        ...state.readyOffers,
+        {
+          queueId: active.id,
+          title: active.title,
+          url: active.url,
+          cueCount,
+          modelId: active.options.modelId,
+        },
+      ];
+
+  return {
+    ...state,
+    activeJob: updatedActive,
+    readyOffers: nextOffers,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function completeActiveAndPromoteQueue(
+  state: QueueSimulationState,
+  finalCueCount: number,
+): QueueSimulationState {
+  const active = state.activeJob;
+  const offersWithCurrent = active
+    ? state.readyOffers.map((o) => (o.queueId === active.id ? { ...o, cueCount: finalCueCount } : o))
+    : state.readyOffers;
+
+  const updatedPlaying =
+    state.playingVideo && active && state.playingVideo.id === active.id
+      ? { ...state.playingVideo, cueCount: finalCueCount }
+      : state.playingVideo;
+
+  const nextSavedPacks = active
+    ? upsertSavedPack(state.savedPacks, {
+        id: active.id,
+        title: active.title,
+        url: active.url,
+        sourceLang: active.options.sourceLang,
+        modelId: active.options.modelId,
+        hasVideo: active.mode === 'DOWNLOAD_AND_TRANSLATE',
+        cueCount: finalCueCount,
+        status: 'saved',
+        thumbnailDataUrl: buildSampleThumbnailDataUrl(
+          active.title,
+          active.mode === 'DOWNLOAD_AND_TRANSLATE' ? '1st Frame' : 'Thumbnail',
+          active.mode === 'DOWNLOAD_AND_TRANSLATE',
+        ),
+        thumbLabel: active.mode === 'DOWNLOAD_AND_TRANSLATE' ? '1st Frame' : 'Video Thumb',
+      })
+    : state.savedPacks;
+
+  const [nextQueued, ...remainingQueue] = state.queuedJobs;
+  if (!nextQueued) {
+    return {
+      ...state,
+      activeJob: active ? { ...active, cueCount: finalCueCount, status: 'completed' } : null,
+      readyOffers: offersWithCurrent,
+      playingVideo: updatedPlaying,
+      savedPacks: nextSavedPacks,
+      shouldAutoOpenPlayer: false,
+    };
+  }
+
+  return {
+    ...state,
+    activeJob: {
+      id: nextQueued.queueId,
+      title: nextQueued.title,
+      url: nextQueued.url,
+      mode: nextQueued.mode,
+      options: nextQueued.options,
+      isFromQueue: true,
+      cueCount: 0,
+      status: 'running',
+    },
+    queuedJobs: remainingQueue,
+    readyOffers: offersWithCurrent,
+    playingVideo: updatedPlaying,
+    savedPacks: nextSavedPacks,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function switchToReadyOffer(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  const offer = state.readyOffers.find((o) => o.queueId === queueId);
+  if (!offer) return state;
+  return {
+    ...state,
+    playingVideo: {
+      id: offer.queueId,
+      title: offer.title,
+      url: offer.url,
+      cueCount: offer.cueCount,
+      modelId: offer.modelId,
+    },
+    readyOffers: state.readyOffers.filter((o) => o.queueId !== queueId),
+    shouldAutoOpenPlayer: true,
+  };
+}
+
+function promoteNextQueuedOrIdle(state: QueueSimulationState, savedPacks: SavedPackSim[]): QueueSimulationState {
+  const [nextQueued, ...remainingQueue] = state.queuedJobs;
+  if (!nextQueued) {
+    return {
+      ...state,
+      activeJob: null,
+      queuedJobs: [],
+      savedPacks,
+      shouldAutoOpenPlayer: false,
+    };
+  }
+  return {
+    ...state,
+    activeJob: {
+      id: nextQueued.queueId,
+      title: nextQueued.title,
+      url: nextQueued.url,
+      mode: nextQueued.mode,
+      options: nextQueued.options,
+      isFromQueue: true,
+      cueCount: 0,
+      status: 'running',
+    },
+    queuedJobs: remainingQueue,
+    savedPacks,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function cancelReadyOffer(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  const offer = state.readyOffers.find((o) => o.queueId === queueId);
+  const filteredOffers = state.readyOffers.filter((o) => o.queueId !== queueId);
+  const isCancelingActive = state.activeJob?.id === queueId && state.activeJob.status === 'running';
+
+  const sourceTitle = isCancelingActive
+    ? state.activeJob!.title
+    : (offer?.title ?? buildShortTitleFromUrl(queueId));
+  const sourceUrl = isCancelingActive ? state.activeJob!.url : (offer?.url ?? '');
+  const sourceModel = isCancelingActive ? state.activeJob!.options.modelId : (offer?.modelId ?? 'large-v3');
+  const sourceLang = isCancelingActive ? state.activeJob!.options.sourceLang : 'auto';
+  const cueCount = isCancelingActive ? state.activeJob!.cueCount : (offer?.cueCount ?? 0);
+
+  const nextSavedPacks =
+    isCancelingActive || offer
+      ? upsertSavedPack(state.savedPacks, {
+          id: queueId,
+          title: sourceTitle,
+          url: sourceUrl,
+          sourceLang,
+          modelId: sourceModel,
+          hasVideo: false,
+          cueCount,
+          status: 'canceled',
+          thumbnailDataUrl: buildSampleThumbnailDataUrl(sourceTitle, 'Thumbnail', true),
+          thumbLabel: '1st Frame',
+        })
+      : state.savedPacks;
+
+  if (isCancelingActive) {
+    return promoteNextQueuedOrIdle(
+      {
+        ...state,
+        readyOffers: filteredOffers,
+      },
+      nextSavedPacks,
+    );
+  }
+
+  return {
+    ...state,
+    readyOffers: filteredOffers,
+    savedPacks: nextSavedPacks,
+    shouldAutoOpenPlayer: false,
+  };
+}
+
+export function cancelActiveJob(state: QueueSimulationState): QueueSimulationState {
+  const active = state.activeJob;
+  if (!active || active.status !== 'running') return state;
+  const nextSavedPacks = upsertSavedPack(state.savedPacks, {
+    id: active.id,
+    title: active.title,
+    url: active.url,
+    sourceLang: active.options.sourceLang,
+    modelId: active.options.modelId,
+    hasVideo: false,
+    cueCount: active.cueCount,
+    status: 'canceled',
+    thumbnailDataUrl: buildSampleThumbnailDataUrl(active.title, '1st Frame', true),
+    thumbLabel: '1st Frame',
+  });
+  return promoteNextQueuedOrIdle(
+    {
+      ...state,
+      readyOffers: state.readyOffers.filter((o) => o.queueId !== active.id),
+    },
+    nextSavedPacks,
+  );
+}
+
+export function removeQueuedJobById(
+  state: QueueSimulationState,
+  queueId: string,
+): QueueSimulationState {
+  const target = state.queuedJobs.find((q) => q.queueId === queueId);
+  const nextSavedPacks = target
+    ? upsertSavedPack(state.savedPacks, {
+        id: target.queueId,
+        title: target.title,
+        url: target.url,
+        sourceLang: target.options.sourceLang,
+        modelId: target.options.modelId,
+        hasVideo: false,
+        cueCount: 0,
+        status: 'canceled',
+        thumbnailDataUrl: buildSampleThumbnailDataUrl(target.title, 'Thumbnail', true),
+        thumbLabel: 'Video Thumb',
+      })
+    : state.savedPacks;
+
+  return {
+    ...state,
+    queuedJobs: state.queuedJobs.filter((q) => q.queueId !== queueId),
+    savedPacks: nextSavedPacks,
+  };
+}
+
+export function redownloadPackInSim(
+  state: QueueSimulationState,
+  packId: string,
+  target: 'video' | 'subs',
+): QueueSimulationState {
+  return {
+    ...state,
+    savedPacks: state.savedPacks.map((pack) => {
+      if (pack.id !== packId) return pack;
+      const nextHasVideo = target === 'video' ? true : pack.hasVideo;
+      const nextCueCount = target === 'subs' ? Math.max(pack.cueCount, 5) : pack.cueCount;
+      return {
+        ...pack,
+        hasVideo: nextHasVideo,
+        cueCount: nextCueCount,
+        status: 'saved',
+        thumbnailDataUrl: buildSampleThumbnailDataUrl(
+          pack.title,
+          nextHasVideo ? '1st Frame' : 'Thumbnail',
+          nextHasVideo,
+        ),
+        thumbLabel: nextHasVideo ? '1st Frame' : pack.thumbLabel,
+      };
+    }),
+  };
+}
+
+export function deleteSavedPackById(
+  state: QueueSimulationState,
+  packId: string,
+): QueueSimulationState {
+  return {
+    ...state,
+    savedPacks: state.savedPacks.filter((p) => p.id !== packId),
+  };
+}
+
+export const QUICK_TIPS_DISMISSED_KEY = 'subcolab_quick_tips_dismissed';
+
+export function readQuickTipsDismissed(storage?: Pick<Storage, 'getItem'> | null): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(QUICK_TIPS_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function persistQuickTipsDismissed(storage?: Pick<Storage, 'setItem'> | null): boolean {
+  if (!storage) return true;
+  try {
+    storage.setItem(QUICK_TIPS_DISMISSED_KEY, '1');
+  } catch {
+    // ignore quota/private-mode storage failure
+  }
+  return true;
+}
+
 

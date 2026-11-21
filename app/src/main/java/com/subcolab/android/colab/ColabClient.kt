@@ -26,6 +26,7 @@ import kotlinx.serialization.json.put
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.ConnectionPool
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -36,8 +37,11 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.io.File
 import java.io.IOException
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
+import java.net.UnknownHostException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -80,6 +84,7 @@ class ColabConnectionLostException(message: String, cause: Throwable? = null) :
 class ColabClient(
     private val authManager: ColabAuthManager,
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(ipv4FirstDns)
         .protocols(listOf(Protocol.HTTP_1_1))
         .retryOnConnectionFailure(true)
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -108,9 +113,25 @@ class ColabClient(
         private const val XSRF_HEADER = "X-Goog-Colab-Token"
         private const val PROXY_TOKEN_HEADER = "X-Colab-Runtime-Proxy-Token"
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+        private val ipv4FirstDns = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> =
+                Dns.SYSTEM.lookup(hostname).sortedBy { if (it is Inet4Address) 0 else 1 }
+        }
     }
 
     private val warmMutex = Mutex()
+
+    @Volatile
+    private var lastDnsFailureAtMs: Long = 0L
+
+    private fun Throwable.isDnsResolutionFailure(): Boolean {
+        var cur: Throwable? = this
+        while (cur != null) {
+            if (cur is UnknownHostException) return true
+            cur = cur.cause
+        }
+        return false
+    }
 
     // Fast HTTP/1.1 control-plane client for /assignments and /api/kernels management
     private val controlHttpClient: OkHttpClient = httpClient.newBuilder()
@@ -255,12 +276,20 @@ if os.path.isfile(pidfile):
 code = r'''
 import glob, os, shutil, subprocess, sys
 pidfile = '/content/.subcolab_prefetch.pid'
+stagefile = '/content/.subcolab_prefetch_stage'
 deps_marker = '/content/.subcolab_deps_ok'
 model_cache = '/content/whisper_models'
 model_id = '$safeModel'
+def _write_stage(s):
+    try:
+        with open(stagefile, 'w') as sf:
+            sf.write(s)
+    except OSError:
+        pass
 try:
     with open(pidfile, 'w') as f:
         f.write(str(os.getpid()))
+    _write_stage('packages')
     os.makedirs(model_cache, exist_ok=True)
     need_install = False
     try:
@@ -278,10 +307,13 @@ try:
         open(deps_marker, 'w').close()
     except OSError:
         pass
+    _write_stage(f'model:{model_id}')
     cached = any(glob.glob(os.path.join(d, '**', 'model.bin'), recursive=True) for d in glob.glob(os.path.join(model_cache, f'*{model_id}*')))
     if not cached:
         os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
         os.environ['HF_HUB_DISABLE_IMPLICIT_TOKEN'] = '1'
+        os.environ.setdefault('HF_HUB_ETAG_TIMEOUT', '15')
+        os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '30')
         from faster_whisper.utils import download_model
         try:
             download_model(model_id, cache_dir=model_cache, local_files_only=False)
@@ -289,11 +321,12 @@ try:
             os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '0'
             download_model(model_id, cache_dir=model_cache, local_files_only=False)
 finally:
-    try:
-        if os.path.isfile(pidfile):
-            os.remove(pidfile)
-    except OSError:
-        pass
+    for p in (pidfile, stagefile):
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
 '''
 log_f = open('/content/.subcolab_prefetch.log', 'w')
 proc = subprocess.Popen([sys.executable, '-c', code], stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True)
@@ -363,6 +396,7 @@ print('SUBCOLAB_PREFETCH_STARTED', proc.pid)
                 AppLogger.i(TAG, "Fresh T4 Jupyter readiness check: ready=$ready endpoint=${session.endpoint}")
             }
             session.lastVerifiedAtMs = System.currentTimeMillis()
+            lastDnsFailureAtMs = 0L
             activeSession = session
             session
         }
@@ -389,6 +423,7 @@ print('SUBCOLAB_PREFETCH_STARTED', proc.pid)
         // Generate nbh ONCE per allocation call so retries query/confirm the SAME VM instead of abandoning it
         val nbh = uuidToWebSafeBase64(UUID.randomUUID())
         val assignUrl = "$COLAB_DOMAIN$TUN_ENDPOINT/assign?nbh=${urlEncode(nbh)}&variant=GPU&accelerator=T4&authuser=0"
+        val hadRecentDnsFailure = (System.currentTimeMillis() - lastDnsFailureAtMs) < 5_000L
         var lastError: Throwable? = null
 
         for (attempt in 0..2) {
@@ -554,6 +589,19 @@ print('SUBCOLAB_PREFETCH_STARTED', proc.pid)
                 throw ce
             } catch (t: Throwable) {
                 lastError = t
+                if (t.isDnsResolutionFailure()) {
+                    lastDnsFailureAtMs = System.currentTimeMillis()
+                    AppLogger.w(TAG, "T4 allocation DNS failure on attempt ${attempt + 1} for nbh=${nbh.take(12)}: ${t.message}")
+                    if (attempt == 0 && !hadRecentDnsFailure) {
+                        onStatus("DNS unreachable for colab.research.google.com — retrying once in 2.5s...")
+                        delay(2_500L)
+                        continue
+                    }
+                    throw ColabConnectionLostException(
+                        "No internet or DNS unavailable (cannot resolve colab.research.google.com). Check Wi-Fi or mobile data and retry.",
+                        t,
+                    )
+                }
                 if (t is ColabQuotaDeniedException) {
                     AppLogger.w(TAG, "Colab T4 quota/capacity denied (outcome=${t.outcome}) on attempt ${attempt + 1} for nbh=${nbh.take(12)}")
                     if (attempt == 0) {

@@ -82,6 +82,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -90,6 +91,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.subcolab.android.model.JobPhase
 import com.subcolab.android.model.JobProgressState
+import com.subcolab.android.model.ReadyQueuedOffer
 import com.subcolab.android.player.MpvPlayerController
 import com.subcolab.android.ui.theme.SubcolabColors
 import kotlinx.coroutines.delay
@@ -101,6 +103,7 @@ import kotlin.math.roundToInt
 fun PlayerScreen(
     jobState: JobProgressState,
     liveSrtRevision: Long,
+    readyQueuedOffers: List<ReadyQueuedOffer> = emptyList(),
     subtitleFontSize: Int,
     subtitleDelaySec: Float = 0f,
     subtitleBorderSize: Int = 3,
@@ -113,6 +116,8 @@ fun PlayerScreen(
     onUpdateSubtitleFontSize: (Int) -> Unit = {},
     onUpdateSubtitleStyle: (Int, Boolean) -> Unit = { _, _ -> },
     onRetryStream: suspend () -> Pair<String, String?>? = { null },
+    onSwitchToQueuedOffer: (String) -> Unit = {},
+    onCancelQueuedOffer: (String) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -129,6 +134,7 @@ fun PlayerScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubValueSec by remember { mutableFloatStateOf(0f) }
+    var lastPlaybackKey by remember { mutableStateOf<String?>(null) }
 
     var gestureHudLabel by remember { mutableStateOf<String?>(null) }
     var gestureHudIsBrightness by remember { mutableStateOf(true) }
@@ -175,8 +181,10 @@ fun PlayerScreen(
     }
 
     // Load offline MP4, smooth live stream (+ optional DASH audio), chunked stream, or local device content:// URI
+    val playbackKey = jobState.currentUrl.ifBlank { jobState.activePackId ?: jobState.playableVideoSource.orEmpty() }
     LaunchedEffect(
         playerState.isInitialized,
+        playbackKey,
         jobState.playableVideoSource,
         jobState.playableAudioSource,
         jobState.playableChunks.size,
@@ -184,6 +192,10 @@ fun PlayerScreen(
         jobState.totalDurationSec,
     ) {
         if (playerState.isInitialized && (!jobState.playableVideoSource.isNullOrBlank() || jobState.playableChunks.isNotEmpty())) {
+            if (lastPlaybackKey != null && lastPlaybackKey != playbackKey) {
+                controller.prepareForNewVideo()
+            }
+            lastPlaybackKey = playbackKey
             controller.syncMediaState(
                 stitchedSource = jobState.playableVideoSource,
                 liveAudioUrl = jobState.playableAudioSource,
@@ -854,6 +866,63 @@ fun PlayerScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+        }
+
+        // Non-interrupting Floating Banner for Ready Queued Videos ("Watch Now" / "Cancel Job")
+        val nextReadyOffer = readyQueuedOffers.firstOrNull()
+        if (nextReadyOffer != null && !isInPictureInPicture) {
+            Surface(
+                color = Color(0xEE131A26),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, SubcolabColors.CinemaSubtitleYellow.copy(alpha = 0.7f)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = if (controlsVisible) 66.dp else 12.dp, start = 14.dp, end = 14.dp)
+                    .widthIn(max = 480.dp)
+                    .fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Next video ready to watch",
+                            color = SubcolabColors.CinemaSubtitleYellow,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            text = "${nextReadyOffer.titleSlug.replace('_', ' ')} (${nextReadyOffer.cueCount} cues)",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { onCancelQueuedOffer(nextReadyOffer.queueId) },
+                        border = BorderStroke(1.dp, SubcolabColors.DangerRed.copy(alpha = 0.7f)),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Text("Cancel Job", color = Color(0xFFFCA5A5), fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                    }
+                    Button(
+                        onClick = { onSwitchToQueuedOffer(nextReadyOffer.queueId) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SubcolabColors.SagePrimary,
+                            contentColor = Color.White,
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Text("Watch Now", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
             }
         }

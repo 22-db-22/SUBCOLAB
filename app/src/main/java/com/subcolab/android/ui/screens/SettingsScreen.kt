@@ -10,6 +10,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -75,9 +77,10 @@ import androidx.compose.ui.unit.sp
 import com.subcolab.android.colab.AuthUiState
 import com.subcolab.android.model.AppSettings
 import com.subcolab.android.model.ThemeMode
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.ui.theme.SubcolabColors
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     authState: AuthUiState,
@@ -113,7 +116,6 @@ fun SettingsScreen(
     var customClientIdInput by remember(settings.customOauthClientId) { mutableStateOf(settings.customOauthClientId) }
     var customClientSecretInput by remember(settings.customOauthClientSecret) { mutableStateOf(settings.customOauthClientSecret) }
     var showCustomOauth by remember(settings.customOauthClientId) { mutableStateOf(settings.customOauthClientId.isNotBlank()) }
-    var modelInput by remember(settings.modelId) { mutableStateOf(settings.modelId) }
 
     val cookiesPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -153,7 +155,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 0. Appearance / Theme Mode Selector (Soft Dark / Light / Dark / System)
+            // 0. Appearance / Theme Mode Selector (System / Soft Dark / Light / Dark)
             Card(
                 colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
                 border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
@@ -173,7 +175,7 @@ fun SettingsScreen(
                         Column {
                             Text("Appearance", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Choose Soft Dark (default), Light, Dark, or System mode (player stays cinema-black).",
+                                text = "Choose System (default), Soft Dark, Light, or Dark mode (player stays cinema-black).",
                                 color = SubcolabColors.TextSecondary,
                                 fontSize = 12.sp,
                             )
@@ -493,22 +495,30 @@ fun SettingsScreen(
                         )
                     }
 
-                    OutlinedTextField(
-                        value = modelInput,
-                        onValueChange = {
-                            modelInput = it
-                            onSetModelId(it)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("faster-whisper Model ID") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = SubcolabColors.GpuCyan,
-                            unfocusedBorderColor = SubcolabColors.BorderSubtle,
-                            focusedTextColor = SubcolabColors.TextPrimary,
-                            unfocusedTextColor = SubcolabColors.TextPrimary,
-                        ),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val activeModelId = WhisperModels.normalize(settings.modelId)
+                        Text(
+                            text = "faster-whisper Model (T4 GPU)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = SubcolabColors.TextPrimary,
+                        )
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WhisperModels.allowed.forEach { (id, label) ->
+                                FilterChip(
+                                    selected = activeModelId == id,
+                                    onClick = { onSetModelId(id) },
+                                    label = { Text(label, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = SubcolabColors.GpuCyanDark,
+                                        selectedLabelColor = SubcolabColors.GpuCyan,
+                                        containerColor = SubcolabColors.SurfaceElevated,
+                                        labelColor = SubcolabColors.TextPrimary,
+                                    ),
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

@@ -12,25 +12,45 @@ import {
   Play,
   RotateCcw,
   Search,
+  Settings,
   Share2,
   SlidersHorizontal,
   Square,
   Subtitles,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
   ChunkRange,
+  DEFAULT_SHARE_SUBTITLE_OPTIONS,
   QUICK_LANG_CHIPS,
+  QueueSimulationState,
+  ShareSubtitleOptions,
+  WHISPER_MODELS,
   WORKFLOW_MODES,
+  WhisperModelId,
   WorkflowModeId,
+  cancelActiveJob,
+  cancelReadyOffer,
+  completeActiveAndPromoteQueue,
+  createInitialQueueState,
+  deleteSavedPackById,
   extractAndUnwrapUrl,
   formatMmSs,
   formatSubtitleDelay,
   isTimestampTranslated,
+  normalizeWhisperModel,
+  onActiveJobMediaReady,
+  persistQuickTipsDismissed,
+  readQuickTipsDismissed,
+  redownloadPackInSim,
+  removeQueuedJobById,
   searchWhisperLanguages,
+  submitJobToQueueState,
+  switchToReadyOffer,
 } from '../lib/subcolabLogic';
 
-type SimScreen = 'home' | 'sheet' | 'player';
+type SimScreen = 'home' | 'sheet' | 'player' | 'settings';
 
 interface SimCue {
   timeSec: number;
@@ -62,17 +82,27 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
   const [selectedLang, setSelectedLang] = useState('auto');
   const [langQuery, setLangQuery] = useState('');
   const [showLangSearch, setShowLangSearch] = useState(false);
+  const [defaultModelId, setDefaultModelId] = useState<WhisperModelId>('large-v3');
+  const [defaultCleanAudio, setDefaultCleanAudio] = useState(false);
+  const [shareOptions, setShareOptions] = useState<ShareSubtitleOptions>({
+    ...DEFAULT_SHARE_SUBTITLE_OPTIONS,
+  });
+
   const [selectedMode, setSelectedMode] = useState<WorkflowModeId>('WATCH_NOW');
   const [screen, setScreen] = useState<SimScreen>('home');
+  const [homeTab, setHomeTab] = useState<'translate' | 'downloads'>('translate');
   const [showAbout, setShowAbout] = useState(false);
-  const [showQuickTip, setShowQuickTip] = useState(true);
+  const [showQuickTip, setShowQuickTip] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? !readQuickTipsDismissed(window.localStorage) : true,
+  );
 
-  const [isRunning, setIsRunning] = useState(false);
+  const [queueState, setQueueState] = useState<QueueSimulationState>(() => createInitialQueueState());
   const [isGpuWarm, setIsGpuWarm] = useState(false);
   const [statusLine, setStatusLine] = useState('Ready');
-  const [cueCount, setCueCount] = useState(0);
   const [completedChunks, setCompletedChunks] = useState<ChunkRange[]>([]);
   const [hasPreviousCache, setHasPreviousCache] = useState(false);
+  const [queueToast, setQueueToast] = useState<string | null>(null);
+  const [jobSeq, setJobSeq] = useState(1);
 
   const [isPaused, setIsPaused] = useState(false);
   const [playTimeSec, setPlayTimeSec] = useState(0);
@@ -89,9 +119,46 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
 
   const cleanUrl = extractAndUnwrapUrl(rawUrl);
   const filteredLanguages = searchWhisperLanguages(langQuery);
+  const activeJob = queueState.activeJob;
+  const isRunning = activeJob?.status === 'running';
+  const cueCount = queueState.playingVideo?.cueCount ?? activeJob?.cueCount ?? 0;
+
+  const openShareSheet = (prefillUrl?: string) => {
+    if (prefillUrl) setRawUrl(prefillUrl);
+    setShareOptions({
+      sourceLang: selectedLang || 'auto',
+      modelId: normalizeWhisperModel(defaultModelId),
+      cleanAudio: defaultCleanAudio,
+      vocalBoost: false,
+      highPrecisionBeam: false,
+      includeOriginal: false,
+    });
+    setScreen('sheet');
+  };
+
+  const handleStartOrQueue = (mode: WorkflowModeId, opts: ShareSubtitleOptions, customUrl?: string) => {
+    const targetUrl = customUrl ?? rawUrl;
+    const nextId = `job_${jobSeq}`;
+    setJobSeq((n) => n + 1);
+    setSelectedMode(mode);
+    setSelectedLang(opts.sourceLang || 'auto');
+
+    const result = submitJobToQueueState(queueState, {
+      id: nextId,
+      url: targetUrl,
+      mode,
+      options: opts,
+    });
+    setQueueState(result.state);
+    setScreen('home');
+    if (result.queuePosition > 0) {
+      setQueueToast(`Added as Queued No. ${result.queuePosition} (${mode === 'WATCH_NOW' ? 'Watch Now' : 'Download'})`);
+      window.setTimeout(() => setQueueToast(null), 2600);
+    }
+  };
 
   useEffect(() => {
-    if (!isRunning) return;
+    if (!activeJob || activeJob.status !== 'running') return;
     let cancelled = false;
     const timers: number[] = [];
 
@@ -102,63 +169,81 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
       timers.push(id);
     };
 
-    if (hasPreviousCache && cueCount >= 4) {
-      setStatusLine('Smart Cache: Skipped Whisper + MP4 download');
-      const modeObj = WORKFLOW_MODES.find((m) => m.id === selectedMode);
-      if (modeObj?.opensPlayer) {
-        setScreen('player');
-      }
-      setIsRunning(false);
-      return;
-    }
-
-    setCueCount(0);
     setCompletedChunks([]);
     setIsGpuWarm(true);
-    setStatusLine(isGpuWarm ? 'Reusing warm Colab T4 GPU...' : 'Booting T4 GPU...');
+    const modelLabel = activeJob.options.modelId;
+    setStatusLine(
+      `${activeJob.isFromQueue ? '[Queued] ' : ''}Running ${activeJob.title} (${modelLabel})...`,
+    );
 
-    run(600, () =>
+    run(550, () =>
       setStatusLine(
-        selectedMode === 'WATCH_NOW'
-          ? 'Live stream proxy ready • slicing 15s adaptive audio chunks...'
-          : 'Downloading full <=720p MP4 & extracting audio in background...',
+        activeJob.mode === 'WATCH_NOW'
+          ? `Streaming ${activeJob.title} • slicing adaptive audio chunks...`
+          : `Downloading ${activeJob.title} <=720p MP4 & translating...`,
       ),
     );
-    run(1100, () => {
-      setStatusLine('Translating audio chunk 1 -> English...');
-      setCueCount(1);
+    run(1050, () => {
+      setStatusLine(`Translating ${activeJob.title} -> English (${modelLabel})...`);
+      setQueueState((prev) =>
+        prev.activeJob?.id === activeJob.id
+          ? { ...prev, activeJob: { ...prev.activeJob, cueCount: 1 } }
+          : prev,
+      );
     });
-    run(1450, () => setCueCount(2));
-    run(1800, () => setCueCount(3));
-    run(2150, () => {
-      setCueCount(4);
+    run(1400, () =>
+      setQueueState((prev) =>
+        prev.activeJob?.id === activeJob.id
+          ? { ...prev, activeJob: { ...prev.activeJob, cueCount: 2 } }
+          : prev,
+      ),
+    );
+    run(1750, () =>
+      setQueueState((prev) =>
+        prev.activeJob?.id === activeJob.id
+          ? { ...prev, activeJob: { ...prev.activeJob, cueCount: 3 } }
+          : prev,
+      ),
+    );
+    run(2100, () => {
       setCompletedChunks([{ startSec: 0, endSec: 45 }]);
-      const modeObj = WORKFLOW_MODES.find((m) => m.id === selectedMode);
-      if (modeObj?.opensPlayer) {
-        setStatusLine('Initial subs ready — auto-opening Live Stream player!');
-        setScreen('player');
-        setPlayTimeSec(2);
-        setIsPaused(false);
-      } else {
-        setStatusLine('Background Download: 4 cues ready, finishing full MP4...');
-      }
+      setStatusLine(
+        activeJob.mode === 'WATCH_NOW'
+          ? activeJob.isFromQueue
+            ? `${activeJob.title} ready — tap Watch Now or Cancel Job in notification`
+            : `Initial subs ready for ${activeJob.title}`
+          : `Background Download: ${activeJob.title} 4 cues ready, finishing MP4...`,
+      );
+      setQueueState((prev) =>
+        prev.activeJob?.id === activeJob.id ? onActiveJobMediaReady(prev, 4) : prev,
+      );
     });
     run(3200, () => {
-      setCueCount(5);
-      setStatusLine(
-        selectedMode === 'WATCH_NOW'
-          ? 'Live Stream + all 5 cues ready (subtitles saved)'
-          : 'Saved full MP4 + SRT/ASS/VTT to Downloads/SUBCOLAB/',
-      );
       setHasPreviousCache(true);
-      setIsRunning(false);
+      setStatusLine(
+        activeJob.mode === 'WATCH_NOW'
+          ? `${activeJob.title} complete (5 cues saved)`
+          : `Saved ${activeJob.title} MP4 + SRT/ASS/VTT`,
+      );
+      setQueueState((prev) =>
+        prev.activeJob?.id === activeJob.id ? completeActiveAndPromoteQueue(prev, 5) : prev,
+      );
     });
 
     return () => {
       cancelled = true;
       timers.forEach((t) => window.clearTimeout(t));
     };
-  }, [isRunning]);
+  }, [activeJob?.id]);
+
+  useEffect(() => {
+    if (!queueState.shouldAutoOpenPlayer || !queueState.playingVideo) return;
+    setStatusLine(`Playing ${queueState.playingVideo.title}`);
+    setPlayTimeSec(2);
+    setIsPaused(false);
+    setScreen('player');
+    setQueueState((prev) => (prev.shouldAutoOpenPlayer ? { ...prev, shouldAutoOpenPlayer: false } : prev));
+  }, [queueState.shouldAutoOpenPlayer, queueState.playingVideo?.id]);
 
   useEffect(() => {
     if (screen !== 'player' || isPaused || isSeekingAhead) return;
@@ -216,12 +301,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
             </div>
             <button
               type="button"
-              onClick={() => {
-                setRawUrl(
-                  'Check this clip! https://www.dailymotion.com/video/x8m7q2p',
-                );
-                setScreen('sheet');
-              }}
+              onClick={() => openShareSheet('Check this clip! https://www.dailymotion.com/video/x8m7q2p')}
               className="inline-flex items-center gap-2 rounded-xl border border-[#5B9BD5]/50 bg-[#DDF0FB] px-3.5 py-2 text-xs font-semibold text-[#2B6CB0] transition hover:bg-[#cde6f8]"
             >
               <Share2 className="h-3.5 w-3.5" />
@@ -475,6 +555,47 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                 : 'border-[#E2DCCD] bg-[#FAF7F0]'
           }`}
         >
+          {/* Android Top Notification Shade for Queued Videos ("Watch Now" / "Cancel Job") */}
+          {queueState.readyOffers.length > 0 && (
+            <div className="border-b border-[#FFFF00]/40 bg-[#131A26] px-3 py-2 text-white">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-[#FFFF00]">
+                    Android Notification • Ready to Watch
+                  </p>
+                  <p className="truncate text-[11px] font-semibold text-white">
+                    {queueState.readyOffers[0].title} ({queueState.readyOffers[0].cueCount} cues)
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const offer = queueState.readyOffers[0];
+                      setQueueState((prev) => cancelReadyOffer(prev, offer.queueId));
+                      setStatusLine(`Canceled ${offer.title} (kept in Downloads)`);
+                    }}
+                    className="rounded-lg border border-[#DC2626]/60 bg-[#DC2626]/15 px-2 py-1 text-[10px] font-semibold text-[#FCA5A5] hover:bg-[#DC2626]/30"
+                  >
+                    Cancel Job
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const offerId = queueState.readyOffers[0].queueId;
+                      setQueueState((prev) => switchToReadyOffer(prev, offerId));
+                      setPlayTimeSec(2);
+                      setIsPaused(false);
+                      setScreen('player');
+                    }}
+                    className="rounded-lg bg-[#2E7D5B] px-2.5 py-1 text-[10px] font-bold text-white hover:bg-[#25694c]"
+                  >
+                    Watch Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {screen === 'player' ? (
             <div className="flex h-[560px] flex-col justify-between bg-black p-3">
               <div className="flex items-center justify-between gap-1.5">
@@ -486,6 +607,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                   Back
                 </button>
                 <span className="truncate text-[11px] font-semibold text-[#FFFF00]">
+                  {queueState.playingVideo ? `${queueState.playingVideo.title} • ` : ''}
                   {cueCount} cues •{' '}
                   {selectedMode === 'WATCH_NOW'
                     ? 'Live Stream'
@@ -720,6 +842,72 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                 />
               </div>
             </div>
+          ) : screen === 'settings' ? (
+            <div className="space-y-3 p-3.5">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setScreen('home')}
+                  className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                    isDark ? 'bg-[#131A26] text-white' : 'bg-[#F1ECE1] text-[#1C2621]'
+                  }`}
+                >
+                  Back
+                </button>
+                <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                  Settings
+                </span>
+                <span className="w-10" />
+              </div>
+
+              <div
+                className={`space-y-3 rounded-2xl border p-3.5 text-xs ${
+                  isDark
+                    ? 'border-[#283449] bg-[#131A26] text-white'
+                    : 'border-[#E2DCCD] bg-white text-[#1C2621]'
+                }`}
+              >
+                <p className="font-bold">Whisper &amp; Subtitle Engine</p>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">Clean Noisy Audio</p>
+                    <p className={`text-[11px] ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                      Default for shared &amp; home jobs
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    aria-label="Default clean audio"
+                    checked={defaultCleanAudio}
+                    onChange={(e) => setDefaultCleanAudio(e.target.checked)}
+                    className="h-4 w-4 accent-[#2E7D5B]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="font-medium">faster-whisper Model (T4 GPU)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {WHISPER_MODELS.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => setDefaultModelId(m.id)}
+                        className={`rounded-xl px-2.5 py-2 text-[11px] font-semibold transition ${
+                          defaultModelId === m.id
+                            ? isDark
+                              ? 'bg-[#172554] text-[#60A5FA] ring-1 ring-[#2563EB]'
+                              : 'bg-[#DCEFE5] text-[#2E7D5B] ring-1 ring-[#2E7D5B]'
+                            : isDark
+                              ? 'bg-[#0B0F17] text-[#94A3B8]'
+                              : 'bg-[#F1ECE1] text-[#5A6860]'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="space-y-3 p-3.5">
               {/* Header */}
@@ -751,14 +939,24 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAbout((a) => !a)}
-                  aria-label="About SUBCOLAB"
-                  className="rounded-lg p-1.5 text-[#5A6860] transition hover:bg-[#F1ECE1] hover:text-[#1C2621]"
-                >
-                  <Info className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAbout((a) => !a)}
+                    aria-label="About SUBCOLAB"
+                    className="rounded-lg p-1.5 text-[#5A6860] transition hover:bg-[#F1ECE1] hover:text-[#1C2621]"
+                  >
+                    <Info className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScreen('settings')}
+                    aria-label="Settings"
+                    className="rounded-lg p-1.5 text-[#5A6860] transition hover:bg-[#F1ECE1] hover:text-[#1C2621]"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               {showAbout && (
@@ -794,8 +992,54 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                 </div>
               )}
 
-              {/* Quick Tips Card */}
-              {showQuickTip && screen === 'home' && (
+              {/* Segmented Tabs: Translate | Downloads */}
+              {screen === 'home' && (
+                <div
+                  role="tablist"
+                  aria-label="Home sections"
+                  className={`grid grid-cols-2 gap-1 rounded-xl border p-1 text-xs font-semibold ${
+                    isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-[#F1ECE1]'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={homeTab === 'translate'}
+                    onClick={() => setHomeTab('translate')}
+                    className={`rounded-lg py-1.5 transition ${
+                      homeTab === 'translate'
+                        ? isDark
+                          ? 'bg-[#2563EB] text-white'
+                          : 'bg-white text-[#1C2621] shadow-xs'
+                        : isDark
+                          ? 'text-[#94A3B8] hover:text-white'
+                          : 'text-[#5A6860] hover:text-[#1C2621]'
+                    }`}
+                  >
+                    Translate
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={homeTab === 'downloads'}
+                    onClick={() => setHomeTab('downloads')}
+                    className={`rounded-lg py-1.5 transition ${
+                      homeTab === 'downloads'
+                        ? isDark
+                          ? 'bg-[#2563EB] text-white'
+                          : 'bg-white text-[#1C2621] shadow-xs'
+                        : isDark
+                          ? 'text-[#94A3B8] hover:text-white'
+                          : 'text-[#5A6860] hover:text-[#1C2621]'
+                    }`}
+                  >
+                    Downloads ({queueState.savedPacks.length})
+                  </button>
+                </div>
+              )}
+
+              {/* Quick Tips Card (permanently dismissed once closed) */}
+              {showQuickTip && screen === 'home' && homeTab === 'translate' && (
                 <div
                   className={`flex items-start gap-2.5 rounded-2xl border p-2.5 text-[11px] shadow-xs ${
                     isDark
@@ -821,7 +1065,12 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowQuickTip(false)}
+                    onClick={() => {
+                      persistQuickTipsDismissed(
+                        typeof window !== 'undefined' ? window.localStorage : undefined,
+                      );
+                      setShowQuickTip(false);
+                    }}
                     aria-label="Dismiss tip"
                     className={isDark ? 'text-[#94A3B8] hover:text-white' : 'text-[#5A6860] hover:text-[#1C2621]'}
                   >
@@ -830,78 +1079,71 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                 </div>
               )}
 
-              {/* URL Input */}
-              <div
-                className={`rounded-2xl border p-3 shadow-xs ${
-                  isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
-                }`}
-              >
-                <label
-                  htmlFor="sim-url"
-                  className={`block text-xs font-semibold ${
-                    isDark ? 'text-white' : 'text-[#1C2621]'
-                  }`}
-                >
-                  Video Link
-                </label>
-                <input
-                  id="sim-url"
-                  type="url"
-                  value={rawUrl}
-                  onChange={(e) => setRawUrl(e.target.value)}
-                  className={`mt-1.5 w-full rounded-xl border px-2.5 py-2 text-xs focus:outline-none ${
-                    isDark
-                      ? 'border-[#283449] bg-[#0B0F17] text-white focus:border-[#2563EB]'
-                      : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#1C2621] focus:border-[#2E7D5B]'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setScreen('sheet')}
-                  className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-white transition ${
-                    isDark
-                      ? 'bg-[#2563EB] hover:bg-[#1D4ED8]'
-                      : 'bg-[#2E7D5B] hover:bg-[#25694c]'
-                  }`}
-                >
-                  <Play className="h-3.5 w-3.5" />
-                  Configure &amp; Start Translation
-                </button>
-              </div>
+              {queueToast && (
+                <div className="rounded-xl border border-[#38BDF8]/50 bg-[#0C2A3E] px-3 py-2 text-[11px] font-semibold text-[#60A5FA]">
+                  {queueToast}
+                </div>
+              )}
 
-              {/* Language & Mode Config Sheet */}
-              {screen === 'sheet' && (
+              {/* Share Overlay Card: Single non-scrolling frame (App Name -> Language row -> Subtitle settings -> Download/Watch Now) */}
+              {screen === 'sheet' ? (
                 <div
-                  className={`space-y-3 rounded-2xl border p-3 shadow-sm ${
+                  data-testid="share-overlay-card"
+                  className={`space-y-2 rounded-2xl border p-3 shadow-sm ${
                     isDark
                       ? 'border-[#2563EB]/45 bg-[#131A26] text-white'
                       : 'border-[#2E7D5B]/45 bg-white text-[#1C2621]'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold">
-                      Source Language (~99)
-                    </span>
+                  <div className="flex items-center justify-between border-b border-slate-700/20 pb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Subtitles className="h-4 w-4 text-[#EAB308]" />
+                      <span className="text-sm font-bold">SUBCOLAB</span>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setShowLangSearch((s) => !s)}
-                      className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
-                        isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
-                      }`}
+                      onClick={() => setScreen('home')}
+                      className={`text-[11px] font-medium ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}
                     >
-                      <Search className="h-3 w-3" />
-                      {showLangSearch ? 'Hide Search' : 'Search All'}
+                      Cancel
                     </button>
                   </div>
 
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold">Language</span>
+                    <div className="flex items-center gap-1.5">
+                      {QUICK_LANG_CHIPS.every((c) => c.code !== shareOptions.sourceLang) && (
+                        <span className="rounded bg-[#0C2A3E] px-1.5 py-0.5 text-[10px] font-bold text-[#60A5FA]">
+                          {shareOptions.sourceLang}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowLangSearch((s) => !s)}
+                        className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                          isDark ? 'text-[#60A5FA]' : 'text-[#2B6CB0]'
+                        }`}
+                      >
+                        <Search className="h-3 w-3" />
+                        {showLangSearch ? 'Hide Search' : 'All ~99'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Single horizontal row: Auto, Chinese, Korean, Jap */}
+                  <div
+                    data-testid="share-lang-row"
+                    className="grid grid-cols-4 gap-1"
+                  >
                     {QUICK_LANG_CHIPS.map((lang) => (
                       <button
                         key={lang.code}
                         type="button"
-                        onClick={() => setSelectedLang(lang.code)}
-                        className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
-                          selectedLang === lang.code
+                        onClick={() =>
+                          setShareOptions((o) => ({ ...o, sourceLang: lang.code }))
+                        }
+                        className={`truncate rounded-lg px-1 py-1.5 text-center text-[11px] font-semibold transition ${
+                          shareOptions.sourceLang === lang.code
                             ? isDark
                               ? 'bg-[#172554] text-[#60A5FA] ring-1 ring-[#2563EB]/60'
                               : 'bg-[#DCEFE5] text-[#2E7D5B] ring-1 ring-[#2E7D5B]/50'
@@ -910,32 +1152,32 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                               : 'bg-[#F1ECE1] text-[#5A6860]'
                         }`}
                       >
-                        {lang.code}
+                        {lang.shortLabel ?? lang.code}
                       </button>
                     ))}
                   </div>
 
                   {showLangSearch && (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       <input
                         type="text"
                         aria-label="Search Whisper language"
                         placeholder="Search e.g. spanish, yue, hangul..."
                         value={langQuery}
                         onChange={(e) => setLangQuery(e.target.value)}
-                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs ${
+                        className={`w-full rounded-lg border px-2.5 py-1 text-xs ${
                           isDark
                             ? 'border-[#283449] bg-[#0B0F17] text-white'
                             : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#1C2621]'
                         }`}
                       />
-                      <div className="max-h-24 space-y-1 overflow-y-auto">
+                      <div className="max-h-20 space-y-0.5 overflow-y-auto">
                         {filteredLanguages.slice(0, 6).map((l) => (
                           <button
                             key={l.code}
                             type="button"
                             onClick={() => {
-                              setSelectedLang(l.code);
+                              setShareOptions((o) => ({ ...o, sourceLang: l.code }));
                               setShowLangSearch(false);
                             }}
                             className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-[11px] ${
@@ -952,14 +1194,59 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="space-y-1 border-t border-slate-700/20 pt-1.5">
+                    <p className="text-[11px] font-bold">Whisper Model</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {WHISPER_MODELS.map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() =>
+                            setShareOptions((o) => ({ ...o, modelId: m.id }))
+                          }
+                          className={`rounded-lg px-2 py-1.5 text-[11px] font-semibold transition ${
+                            shareOptions.modelId === m.id
+                              ? isDark
+                                ? 'bg-[#0C2A3E] text-[#38BDF8] ring-1 ring-[#38BDF8]/60'
+                                : 'bg-[#DDF0FB] text-[#2B6CB0] ring-1 ring-[#2B6CB0]/40'
+                              : isDark
+                                ? 'bg-[#0B0F17] text-[#94A3B8]'
+                                : 'bg-[#F1ECE1] text-[#5A6860]'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 text-[11px]">
+                    {[
+                      { key: 'cleanAudio' as const, label: 'Clean Audio' },
+                      { key: 'vocalBoost' as const, label: 'Vocal Boost / Cut Music' },
+                      { key: 'highPrecisionBeam' as const, label: 'High-Precision Beam Search' },
+                    ].map((opt) => (
+                      <label
+                        key={opt.key}
+                        className="flex cursor-pointer items-center justify-between gap-2 py-0.5"
+                      >
+                        <span className="font-medium">{opt.label}</span>
+                        <input
+                          type="checkbox"
+                          checked={shareOptions[opt.key]}
+                          onChange={(e) =>
+                            setShareOptions((prev) => ({ ...prev, [opt.key]: e.target.checked }))
+                          }
+                          className="h-3.5 w-3.5 accent-[#2E7D5B]"
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 border-t border-slate-700/20 pt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedMode('DOWNLOAD_AND_TRANSLATE');
-                        setScreen('home');
-                        setIsRunning(true);
-                      }}
+                      onClick={() => handleStartOrQueue('DOWNLOAD_AND_TRANSLATE', shareOptions)}
                       className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#5B9BD5] bg-[#DDF0FB] py-2 text-xs font-bold text-[#2B6CB0] transition hover:bg-[#cde6f8]"
                     >
                       <Download className="h-3.5 w-3.5" />
@@ -967,58 +1254,256 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedMode('WATCH_NOW');
-                        setScreen('home');
-                        setIsRunning(true);
-                      }}
+                      onClick={() => handleStartOrQueue('WATCH_NOW', shareOptions)}
                       className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#2E7D5B] py-2 text-xs font-bold text-white transition hover:bg-[#25694c]"
                     >
                       <Play className="h-3.5 w-3.5" />
                       Watch Now
                     </button>
                   </div>
-                  <p className={`text-[10px] leading-relaxed ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
-                    Watch Now streams smoothly &amp; auto-opens over other apps once initial subs
-                    arrive. Download saves full MP4 quietly in background.
-                  </p>
                 </div>
-              )}
-
-              {/* Active Progress / Warm Reuse */}
-              {(isRunning || cueCount > 0 || isGpuWarm) && (
-                <div
-                  className={`space-y-2.5 rounded-2xl border p-3 shadow-xs ${
-                    isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {isRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-[#5B9BD5]" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4 text-[#16A34A]" />
-                    )}
-                    <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
-                      {statusLine}
-                    </p>
-                  </div>
-                  <p className={`text-[11px] ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
-                    {cueCount} cues • {completedChunks.length} chunk(s) • lang={selectedLang}
-                  </p>
-                  {cueCount >= 4 && (
-                    <button
-                      type="button"
-                      onClick={() => setScreen('player')}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2E7D5B] py-2 text-xs font-bold text-white"
+              ) : homeTab === 'downloads' ? (
+                <div className="space-y-2.5" data-testid="downloads-tab-panel">
+                  {queueState.savedPacks.length === 0 ? (
+                    <div
+                      className={`rounded-2xl border p-4 text-center text-xs ${
+                        isDark
+                          ? 'border-[#283449] bg-[#131A26] text-[#94A3B8]'
+                          : 'border-[#E2DCCD] bg-white text-[#5A6860]'
+                      }`}
                     >
-                      <Play className="h-3.5 w-3.5" />
-                      Open Built-in libmpv Player
-                    </button>
+                      Completed &amp; canceled jobs appear here with video thumbnails so you can
+                      download video or subtitles anytime.
+                    </div>
+                  ) : (
+                    queueState.savedPacks.map((pack) => (
+                      <div
+                        key={pack.id}
+                        data-testid={`saved-pack-${pack.id}`}
+                        className={`space-y-2 rounded-2xl border p-2.5 text-xs shadow-xs ${
+                          isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="relative h-14 w-24 shrink-0 overflow-hidden rounded-lg border border-slate-700/30 bg-black">
+                            <img
+                              src={pack.thumbnailDataUrl}
+                              alt={`${pack.title} thumbnail`}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-1">
+                              <p
+                                className={`truncate font-bold ${
+                                  isDark ? 'text-white' : 'text-[#1C2621]'
+                                }`}
+                              >
+                                {pack.title}
+                              </p>
+                              <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                                  pack.status === 'canceled'
+                                    ? 'bg-[#DC2626]/15 text-[#F87171]'
+                                    : 'bg-[#16A34A]/15 text-[#22C55E]'
+                                }`}
+                              >
+                                {pack.status === 'canceled' ? 'Canceled' : 'Saved'}
+                              </span>
+                            </div>
+                            <p
+                              className={`mt-0.5 truncate text-[10px] ${
+                                isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'
+                              }`}
+                            >
+                              {pack.status === 'canceled' && !pack.hasVideo && pack.cueCount === 0
+                                ? 'Canceled • Tap Get Video / Subs'
+                                : `${pack.hasVideo ? '720p MP4' : 'Stream'} • ${pack.cueCount} cues • ${pack.thumbLabel}`}
+                            </p>
+                            <div className="mt-1.5 flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setQueueState((prev) => redownloadPackInSim(prev, pack.id, 'video'))
+                                }
+                                className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                                  pack.hasVideo
+                                    ? isDark
+                                      ? 'bg-[#172554] text-[#60A5FA]'
+                                      : 'bg-[#DCEFE5] text-[#2E7D5B]'
+                                    : isDark
+                                      ? 'bg-[#0B0F17] text-[#E2E8F0] ring-1 ring-[#283449]'
+                                      : 'bg-[#FAF7F0] text-[#1C2621] ring-1 ring-[#E2DCCD]'
+                                }`}
+                              >
+                                {pack.hasVideo ? 'Video ✓' : 'Get Video'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setQueueState((prev) => redownloadPackInSim(prev, pack.id, 'subs'))
+                                }
+                                className={`rounded-md px-2 py-1 text-[10px] font-semibold ${
+                                  pack.cueCount > 0
+                                    ? isDark
+                                      ? 'bg-[#0C2A3E] text-[#38BDF8]'
+                                      : 'bg-[#DDF0FB] text-[#2B6CB0]'
+                                    : isDark
+                                      ? 'bg-[#0B0F17] text-[#E2E8F0] ring-1 ring-[#283449]'
+                                      : 'bg-[#FAF7F0] text-[#1C2621] ring-1 ring-[#E2DCCD]'
+                                }`}
+                              >
+                                {pack.cueCount > 0 ? `Subs (${pack.cueCount})` : 'Get Subtitles'}
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Delete ${pack.title}`}
+                                onClick={() =>
+                                  setQueueState((prev) => deleteSavedPackById(prev, pack.id))
+                                }
+                                className="ml-auto rounded-md p-1 text-[#94A3B8] hover:text-[#DC2626]"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
+              ) : (
+                <>
+                  {/* URL Input */}
+                  <div
+                    className={`rounded-2xl border p-3 shadow-xs ${
+                      isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                    }`}
+                  >
+                    <label
+                      htmlFor="sim-url"
+                      className={`block text-xs font-semibold ${
+                        isDark ? 'text-white' : 'text-[#1C2621]'
+                      }`}
+                    >
+                      Video Link
+                    </label>
+                    <input
+                      id="sim-url"
+                      type="url"
+                      value={rawUrl}
+                      onChange={(e) => setRawUrl(e.target.value)}
+                      className={`mt-1.5 w-full rounded-xl border px-2.5 py-2 text-xs focus:outline-none ${
+                        isDark
+                          ? 'border-[#283449] bg-[#0B0F17] text-white focus:border-[#2563EB]'
+                          : 'border-[#E2DCCD] bg-[#FAF7F0] text-[#1C2621] focus:border-[#2E7D5B]'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openShareSheet()}
+                      className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-bold text-white transition ${
+                        isDark
+                          ? 'bg-[#2563EB] hover:bg-[#1D4ED8]'
+                          : 'bg-[#2E7D5B] hover:bg-[#25694c]'
+                      }`}
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      {isRunning
+                        ? `Queue Next Link (No. ${queueState.queuedJobs.length + 1})`
+                        : 'Configure & Start Translation'}
+                    </button>
+                  </div>
+
+                  {/* Active Job Progress Card */}
+                  {(activeJob || isGpuWarm) && (
+                    <div
+                      className={`space-y-2 rounded-2xl border p-3 shadow-xs ${
+                        isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          {isRunning ? (
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#5B9BD5]" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-[#16A34A]" />
+                          )}
+                          <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                            {statusLine}
+                          </p>
+                        </div>
+                        {isRunning && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const canceledTitle = activeJob?.title ?? 'Job';
+                              setQueueState((prev) => cancelActiveJob(prev));
+                              setStatusLine(`Canceled ${canceledTitle} (saved in Downloads)`);
+                            }}
+                            className="shrink-0 rounded-lg border border-[#DC2626]/40 px-2 py-0.5 text-[10px] font-semibold text-[#DC2626] hover:bg-[#DC2626]/10"
+                          >
+                            Cancel Job
+                          </button>
+                        )}
+                      </div>
+                      {activeJob && (
+                        <p className={`text-[11px] ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                          {activeJob.title} • {activeJob.cueCount} cues • {activeJob.options.modelId}
+                        </p>
+                      )}
+                      {(queueState.playingVideo || (activeJob && activeJob.cueCount >= 4)) && (
+                        <button
+                          type="button"
+                          onClick={() => setScreen('player')}
+                          className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2E7D5B] py-2 text-xs font-bold text-white"
+                        >
+                          <Play className="h-3.5 w-3.5" />
+                          Open Built-in libmpv Player
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Queued Job Process Boxes (Queued No. 1, Queued No. 2, ...) */}
+                  {queueState.queuedJobs.map((qItem, idx) => (
+                    <div
+                      key={qItem.queueId}
+                      className={`flex items-center justify-between gap-2 rounded-2xl border px-3 py-2.5 text-xs shadow-xs ${
+                        isDark ? 'border-[#283449] bg-[#131A26]' : 'border-[#E2DCCD] bg-white'
+                      }`}
+                    >
+                      <span
+                        className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ${
+                          qItem.mode === 'WATCH_NOW'
+                            ? 'bg-[#DCEFE5] text-[#2E7D5B]'
+                            : 'bg-[#DDF0FB] text-[#2B6CB0]'
+                        }`}
+                      >
+                        Queued No. {idx + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className={`truncate font-semibold ${isDark ? 'text-white' : 'text-[#1C2621]'}`}>
+                          {qItem.title}
+                        </p>
+                        <p className={`truncate text-[10px] ${isDark ? 'text-[#94A3B8]' : 'text-[#5A6860]'}`}>
+                          {qItem.mode === 'WATCH_NOW' ? 'Watch Now' : 'Download'} • {qItem.options.sourceLang} • {qItem.options.modelId}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Remove Queued No. ${idx + 1}`}
+                        onClick={() => setQueueState((prev) => removeQueuedJobById(prev, qItem.queueId))}
+                        className={isDark ? 'text-[#94A3B8] hover:text-white' : 'text-[#5A6860] hover:text-[#1C2621]'}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </>
               )}
 
-              {isGpuWarm && !isRunning && (
+              {screen === 'home' && homeTab === 'translate' && isGpuWarm && !isRunning && (
                 <div
                   className={`space-y-2 rounded-2xl border p-3 shadow-xs ${
                     isDark ? 'border-[#38BDF8]/40 bg-[#131A26]' : 'border-[#5B9BD5]/40 bg-white'
@@ -1032,6 +1517,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                       type="button"
                       onClick={() => {
                         setIsGpuWarm(false);
+                        setQueueState(createInitialQueueState());
                         setStatusLine('Colab T4 GPU stopped');
                       }}
                       className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#DC2626]"
@@ -1043,7 +1529,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsRunning(true)}
+                      onClick={() => handleStartOrQueue(selectedMode, shareOptions)}
                       className="inline-flex items-center justify-center gap-1 rounded-xl border border-[#2E7D5B]/50 bg-[#DCEFE5]/50 py-1.5 text-[11px] font-semibold text-[#2E7D5B]"
                     >
                       <RotateCcw className="h-3 w-3" />
@@ -1054,7 +1540,6 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                       onClick={() => {
                         setHasPreviousCache(false);
                         setRawUrl('');
-                        setCueCount(0);
                       }}
                       className="inline-flex items-center justify-center gap-1 rounded-xl border border-[#5B9BD5]/50 bg-[#DDF0FB]/60 py-1.5 text-[11px] font-semibold text-[#2B6CB0]"
                     >
@@ -1070,7 +1555,7 @@ export function PhonePreview({ isDark = false }: { isDark?: boolean }) {
                 </div>
               )}
 
-              {screen === 'home' && !isRunning && cueCount === 0 && !isGpuWarm && (
+              {screen === 'home' && homeTab === 'translate' && !isRunning && cueCount === 0 && !isGpuWarm && (
                 <div
                   className={`space-y-2 rounded-2xl border p-3 text-[11px] ${
                     isDark

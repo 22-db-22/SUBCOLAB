@@ -1,12 +1,14 @@
 package com.subcolab.android.ui.screens
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -99,6 +101,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -106,6 +109,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -124,10 +130,13 @@ import com.subcolab.android.model.SavePackStatus
 import com.subcolab.android.model.SavedPack
 import com.subcolab.android.model.SubtitleRetranslateOptions
 import com.subcolab.android.model.WhisperLanguages
+import com.subcolab.android.model.WhisperModels
 import com.subcolab.android.model.WorkflowMode
 import com.subcolab.android.ui.theme.SubcolabColors
 import com.subcolab.android.util.UrlUnwrapper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -157,10 +166,15 @@ fun HomeScreen(
     onRetranslatePackSubtitles: (packId: String, options: SubtitleRetranslateOptions) -> Unit = { _, _ -> },
     onPlaySavedPack: (packId: String) -> Unit = {},
     onDeleteSavedPack: (packId: String) -> Unit = {},
+    onEnsurePackThumbnail: (packId: String) -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenDebugLogs: () -> Unit = {},
     onCopyAllLogs: () -> String = { "" },
     onDismissLastCrash: () -> Unit = {},
+    onDismissQuickTips: () -> Unit = {},
+    onRemoveQueuedJob: (queueId: String) -> Unit = {},
+    onSwitchToQueuedOffer: (queueId: String) -> Unit = {},
+    onCancelQueuedOffer: (queueId: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -369,6 +383,10 @@ fun HomeScreen(
                         }
                     },
                     onDismissLastCrash = onDismissLastCrash,
+                    onDismissQuickTips = onDismissQuickTips,
+                    onRemoveQueuedJob = onRemoveQueuedJob,
+                    onSwitchToQueuedOffer = onSwitchToQueuedOffer,
+                    onCancelQueuedOffer = onCancelQueuedOffer,
                     onJumpToDownloads = {
                         coroutineScope.launch { pagerState.animateScrollToPage(1) }
                     },
@@ -379,6 +397,7 @@ fun HomeScreen(
                     activePackId = jobState.activePackId,
                     isRunning = isRunning,
                     jobStatusText = jobState.translationProgressText ?: jobState.saveStatusText ?: jobState.statusMessage,
+                    onEnsurePackThumbnail = onEnsurePackThumbnail,
                     onClickVideo = { pack ->
                         if (pack.hasVideo) {
                             if (!pack.isLocalVideo) {
@@ -684,11 +703,14 @@ private fun TranslateTabContent(
     onCopyAllLogs: () -> Unit,
     onPasteClipboard: () -> Unit,
     onDismissLastCrash: () -> Unit,
+    onDismissQuickTips: () -> Unit,
+    onRemoveQueuedJob: (queueId: String) -> Unit,
+    onSwitchToQueuedOffer: (queueId: String) -> Unit,
+    onCancelQueuedOffer: (queueId: String) -> Unit,
     onJumpToDownloads: () -> Unit,
 ) {
     val context = LocalContext.current
     var overlayBannerDismissed by remember { mutableStateOf(false) }
-    var quickTipsDismissed by remember { mutableStateOf(false) }
     var quickTipsExpanded by remember { mutableStateOf(true) }
     var jobResultDismissed by remember { mutableStateOf(false) }
     var previousCardDismissed by remember { mutableStateOf(false) }
@@ -860,9 +882,9 @@ private fun TranslateTabContent(
             }
         }
 
-        // Collapsible / Swipe-to-Dismiss Quick Tips Card
-        if (!quickTipsDismissed) {
-            SwipeDismissibleBanner(onDismiss = { quickTipsDismissed = true }) {
+        // Collapsible / Swipe-to-Dismiss Quick Tips Card (persisted permanently once dismissed)
+        if (!settings.quickTipsDismissed) {
+            SwipeDismissibleBanner(onDismiss = onDismissQuickTips) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = SubcolabColors.CardSurface),
                     border = BorderStroke(1.dp, SubcolabColors.WarmBorder),
@@ -919,7 +941,7 @@ private fun TranslateTabContent(
                                 modifier = Modifier.size(18.dp),
                             )
                             IconButton(
-                                onClick = { quickTipsDismissed = true },
+                                onClick = onDismissQuickTips,
                                 modifier = Modifier.size(28.dp),
                             ) {
                                 Icon(
@@ -961,6 +983,81 @@ private fun TranslateTabContent(
                                     lineHeight = 16.sp,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Non-interrupting Ready-to-Watch Queued Offers ("Watch Now" / "Cancel Job")
+        jobState.readyQueuedOffers.forEach { offer ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
+                border = BorderStroke(1.5.dp, SubcolabColors.SagePrimary.copy(alpha = 0.85f)),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = SubcolabColors.SuccessGreen,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (offer.isLiveStreaming) "Queued Video Ready to Watch" else "Queued Video Ready",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = SubcolabColors.SuccessGreen,
+                            )
+                            Text(
+                                text = "${offer.titleSlug.replace('_', ' ')} • ${offer.cueCount} cues",
+                                fontSize = 12.sp,
+                                color = SubcolabColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { onCancelQueuedOffer(offer.queueId) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, SubcolabColors.DangerRed.copy(alpha = 0.65f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = "Cancel Job",
+                                color = SubcolabColors.DangerRed,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                            )
+                        }
+                        Button(
+                            onClick = { onSwitchToQueuedOffer(offer.queueId) },
+                            modifier = Modifier.weight(1.3f),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = SubcolabColors.SagePrimary,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(17.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Watch Now", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
@@ -1197,6 +1294,66 @@ private fun TranslateTabContent(
             }
         }
 
+        // Queued Job Process Boxes ("Queued No. 1", "Queued No. 2", ...) — next box promotes to Active Job when current finishes
+        jobState.queuedJobs.forEachIndexed { idx, item ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
+                border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Surface(
+                        color = if (item.mode == WorkflowMode.WATCH_NOW) SubcolabColors.SagePrimary.copy(alpha = 0.2f) else SubcolabColors.SkyContainer,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(
+                            text = "Queued No. ${idx + 1}",
+                            color = if (item.mode == WorkflowMode.WATCH_NOW) SubcolabColors.SagePrimary else SubcolabColors.SkyTextStrong,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.titleSlug.replace('_', ' '),
+                            color = SubcolabColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val modeLabel = if (item.mode == WorkflowMode.WATCH_NOW) "Watch Now" else "Download"
+                        val modelLabel = WhisperModels.normalize(item.subtitleOptions.modelId)
+                        Text(
+                            text = "$modeLabel • ${item.sourceLang} • $modelLabel",
+                            color = SubcolabColors.TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    IconButton(
+                        onClick = { onRemoveQueuedJob(item.queueId) },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Remove from queue",
+                            tint = SubcolabColors.TextSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+
         // Card 1: Paste Video Link (with integrated Spoken Language selector)
         Card(
             colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
@@ -1305,13 +1462,21 @@ private fun TranslateTabContent(
                     }
                 }
 
+                if (isRunning) {
+                    Text(
+                        text = "Job active — tapping Download or Watch Now adds this link to Queued No. ${jobState.queuedJobs.size + 1}.",
+                        fontSize = 11.sp,
+                        color = SubcolabColors.GpuCyan,
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     OutlinedButton(
                         onClick = onStartDownloadJob,
-                        enabled = urlInput.isNotBlank() && !isRunning,
+                        enabled = urlInput.isNotBlank(),
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 50.dp),
@@ -1339,7 +1504,7 @@ private fun TranslateTabContent(
 
                     Button(
                         onClick = onStartWatchNowJob,
-                        enabled = urlInput.isNotBlank() && !isRunning,
+                        enabled = urlInput.isNotBlank(),
                         modifier = Modifier
                             .weight(1.2f)
                             .heightIn(min = 50.dp),
@@ -1648,6 +1813,7 @@ private fun DownloadsTabContent(
     activePackId: String?,
     isRunning: Boolean,
     jobStatusText: String,
+    onEnsurePackThumbnail: (packId: String) -> Unit,
     onClickVideo: (SavedPack) -> Unit,
     onClickSubtitles: (SavedPack) -> Unit,
     onPlayPack: (SavedPack) -> Unit,
@@ -1684,7 +1850,7 @@ private fun DownloadsTabContent(
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
-                    text = "Each downloaded video and its English + original subtitles will live in its own subfolder inside Downloads/SUBCOLAB/.",
+                    text = "Each downloaded or cancelled video lives here with English + original subtitles so you can play or re-download anytime.",
                     fontSize = 13.sp,
                     color = SubcolabColors.TextSecondary,
                 )
@@ -1700,7 +1866,7 @@ private fun DownloadsTabContent(
     ) {
         item {
             Text(
-                text = "Saved Packs (Downloads/SUBCOLAB/<title>/)",
+                text = "Saved & Cancelled Packs (Downloads/SUBCOLAB/<title>/)",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = SubcolabColors.TextSecondary,
@@ -1712,6 +1878,25 @@ private fun DownloadsTabContent(
             val isThisPackRunning = isRunning && activePackId == pack.effectiveId
             val hasVideo = pack.hasVideo
             val hasSubs = pack.hasSubtitles
+
+            LaunchedEffect(pack.effectiveId, pack.thumbnailPath, pack.mp4UriString, pack.internalVideoPath) {
+                if (pack.thumbnailPath.isNullOrBlank()) {
+                    onEnsurePackThumbnail(pack.effectiveId)
+                }
+            }
+
+            val thumbBitmap by produceState<ImageBitmap?>(
+                initialValue = null,
+                key1 = pack.thumbnailPath,
+                key2 = pack.effectiveId,
+            ) {
+                val path = pack.thumbnailPath
+                value = if (!path.isNullOrBlank()) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
+                    }
+                } else null
+            }
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
@@ -1728,11 +1913,52 @@ private fun DownloadsTabContent(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    // Header: Short Name + Folder Meta
+                    // Header: Video Thumbnail (or 1st frame) + Short Name + Folder Meta
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 96.dp, height = 56.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SubcolabColors.SurfaceElevated),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (thumbBitmap != null) {
+                                Image(
+                                    bitmap = thumbBitmap!!,
+                                    contentDescription = pack.titleSlug.replace('_', ' '),
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (hasVideo) Icons.Default.Videocam else Icons.Default.VideoFile,
+                                    contentDescription = null,
+                                    tint = SubcolabColors.TextSecondary.copy(alpha = 0.65f),
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                            if (pack.isCancelled) {
+                                Surface(
+                                    color = SubcolabColors.DangerRed.copy(alpha = 0.88f),
+                                    shape = RoundedCornerShape(5.dp),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(4.dp),
+                                ) {
+                                    Text(
+                                        text = "Canceled",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    )
+                                }
+                            }
+                        }
+
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = pack.titleSlug.replace('_', ' '),
@@ -1743,7 +1969,8 @@ private fun DownloadsTabContent(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             val langSummary = buildList {
-                                add("Folder: ${pack.effectiveFolder}")
+                                if (pack.isCancelled && !hasVideo && !hasSubs) add("Canceled • Tap Get Video / Subs")
+                                else add("Folder: ${pack.effectiveFolder}")
                                 if (pack.cueCount > 0) add("${pack.cueCount} EN")
                                 if (pack.origCueCount > 0) {
                                     add("${pack.origCueCount} ${(pack.detectedLang ?: "ORIG").uppercase()}")
@@ -1752,7 +1979,7 @@ private fun DownloadsTabContent(
                             Text(
                                 text = langSummary,
                                 fontSize = 11.sp,
-                                color = SubcolabColors.TextSecondary,
+                                color = if (pack.isCancelled && !hasVideo && !hasSubs) SubcolabColors.DangerRed.copy(alpha = 0.85f) else SubcolabColors.TextSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -2026,7 +2253,7 @@ private fun SubtitleOptionsDialog(
     onStartRetranslate: (SubtitleRetranslateOptions) -> Unit,
 ) {
     var lang by remember { mutableStateOf(pack.sourceLang.ifBlank { "auto" }) }
-    var modelId by remember { mutableStateOf(defaultModelId.ifBlank { "large-v3" }) }
+    var modelId by remember { mutableStateOf(WhisperModels.normalize(defaultModelId)) }
     var cleanAudio by remember { mutableStateOf(defaultCleanAudio) }
     var vocalBoost by remember { mutableStateOf(false) }
     var includeOriginal by remember { mutableStateOf(false) }
@@ -2085,14 +2312,10 @@ private fun SubtitleOptionsDialog(
                     }
                 }
 
-                // Model selector
+                // Model selector (restricted to large-v3 default & turbo)
                 Text("Whisper Model", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        "large-v3" to "large-v3 (Best)",
-                        "large-v3-turbo" to "turbo (Fast)",
-                        "medium" to "medium",
-                    ).forEach { (id, label) ->
+                    WhisperModels.allowed.forEach { (id, label) ->
                         FilterChip(
                             selected = modelId == id,
                             onClick = { modelId = id },

@@ -226,7 +226,7 @@ fun isSubcolabDarkTheme(themeMode: ThemeMode): Boolean = when (themeMode) {
 
 @Composable
 fun SubcolabTheme(
-    themeMode: ThemeMode = ThemeMode.SOFT_DARK,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()

@@ -66,6 +66,7 @@ data class ResolvedStreamInfo(
     val canUseMpegTs: Boolean,
     val clientUsed: String,
     val manualSubtitles: List<SubtitleTrackCandidate> = emptyList(),
+    val thumbnailUrl: String? = null,
 )
 
 class StreamExtractor {
@@ -527,6 +528,7 @@ class StreamExtractor {
         val topHeaders = extractHeaders(root["http_headers"] as? JsonObject)
         // Strictly read creator-uploaded `subtitles` only; ignore `automatic_captions`
         val manualSubs = extractManualSubtitles(root["subtitles"] as? JsonObject)
+        val thumbnailUrl = extractThumbnailUrl(root)
 
         val reqFormats = root["requested_formats"]?.jsonArray
         if (reqFormats != null && reqFormats.isNotEmpty()) {
@@ -558,6 +560,7 @@ class StreamExtractor {
                 canUseMpegTs = isCodecMpegTsCompatible(vCodec, aCodec),
                 clientUsed = clientUsed,
                 manualSubtitles = manualSubs,
+                thumbnailUrl = thumbnailUrl,
             )
         }
 
@@ -574,7 +577,22 @@ class StreamExtractor {
             canUseMpegTs = isCodecMpegTsCompatible(vCodec, aCodec),
             clientUsed = clientUsed,
             manualSubtitles = manualSubs,
+            thumbnailUrl = thumbnailUrl,
         )
+    }
+
+    private fun extractThumbnailUrl(root: JsonObject): String? {
+        val direct = root["thumbnail"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        if (direct != null) return direct
+        val list = runCatching { root["thumbnails"]?.jsonArray }.getOrNull() ?: return null
+        for (i in list.size - 1 downTo 0) {
+            val obj = list[i] as? JsonObject ?: continue
+            val candidate = obj["url"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            if (candidate != null) return candidate
+        }
+        return null
     }
 
     private fun extractManualSubtitles(subObj: JsonObject?): List<SubtitleTrackCandidate> {

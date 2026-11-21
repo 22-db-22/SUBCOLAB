@@ -14,37 +14,85 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         
       - name: Check colab_worker.py syntax
         run: python3 -m py_compile app/src/main/assets/colab_worker.py
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
           
-      - name:  Set up Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools'
+          packages: 'platform-tools build-tools;35.0.0'
 
       - name: Set up Gradle 8.10.2
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.10.2'
 
       - name: Run Kotlin Unit Tests
         run: gradle testDebugUnitTest --no-daemon
 
-      - name: Build SUBCOLAB Debug APK (arm64-v8a)
-        run: gradle assembleDebug --no-daemon
+      - name: Build SUBCOLAB Release APK (arm64-v8a)
+        run: gradle assembleRelease --no-daemon
 
-      - name: Upload SUBCOLAB APKs
-        uses: actions/upload-artifact@v4
+      - name: Sign Release APK
+        id: sign_apk
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        if: env.SIGNING_KEY != ''
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          BUILD_TOOLS_DIR="$SDK_DIR/build-tools/35.0.0"
+          if [ ! -x "$BUILD_TOOLS_DIR/apksigner" ]; then
+            BUILD_TOOLS_DIR=$(ls -d "$SDK_DIR/build-tools/"* | sort -V | tail -n 1)
+          fi
+
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "No release APK found in app/build/outputs/apk/release" >&2
+            exit 1
+          fi
+
+          KEYSTORE_FILE=$(mktemp /tmp/subcolab-release-XXXXXX.jks)
+          trap 'rm -f "$KEYSTORE_FILE"' EXIT
+          printf '%s' "$SIGNING_KEY" | tr -d '\r\n ' | base64 -d > "$KEYSTORE_FILE"
+
+          if [ -z "${KEY_PASSWORD:-}" ]; then
+            export KEY_PASSWORD="$KEY_STORE_PASSWORD"
+          fi
+
+          ALIGNED_APK="${UNSIGNED_APK%.apk}-aligned.apk"
+          SIGNED_APK="${UNSIGNED_APK%-unsigned.apk}.apk"
+          if [ "$SIGNED_APK" = "$UNSIGNED_APK" ]; then
+            SIGNED_APK="${UNSIGNED_APK%.apk}-signed.apk"
+          fi
+
+          "$BUILD_TOOLS_DIR/zipalign" -p -f 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$KEYSTORE_FILE" \
+            --ks-key-alias "$ALIAS" \
+            --ks-pass env:KEY_STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --out "$SIGNED_APK" \
+            "$ALIGNED_APK"
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose "$SIGNED_APK"
+          rm -f "$ALIGNED_APK" "$UNSIGNED_APK"
+          echo "signedReleaseFile=$SIGNED_APK" >> "$GITHUB_OUTPUT"
+
+      - name: Upload SUBCOLAB Release APK
+        uses: actions/upload-artifact@v6
         with:
           name: SUBCOLAB-Android-APKs
           path: |
-            app/build/outputs/apk/debug/*.apk
+            ${{ steps.sign_apk.outputs.signedReleaseFile || 'app/build/outputs/apk/release/*.apk' }}
           retention-days: 30
