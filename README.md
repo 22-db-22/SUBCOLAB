@@ -40,7 +40,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 ---
 
 ## Screenshots
-
+## ScreenShots
 <p align="center">
   <img width="200" alt="Home Screen" src="https://github.com/user-attachments/assets/7cc933db-1305-4d4b-aa64-fe8dc1775b59" />
   <img width="200" alt="Share Overlay" src="public/assets/aistudio/Screenshot_20261121_150002_SUBCOLAB_e7447ca1.jpg" />
@@ -49,7 +49,7 @@ Powered by an embedded [`youtubedl-android`](https://github.com/yausername/youtu
 </p>
 
 <p align="center">
-  <img width="200" alt="Video Quality" src="https://github.com/user-attachments/assets/36dca93a-b588-4128-95a6-41100be94c7b" />
+  <img width="200" alt="Video Quality" src="https://github.com/user-attachments/assets/36dca93a-b988-4128-95a6-41100be94c7b" />
   <img width="200" alt="Subtitle Options" src="https://github.com/user-attachments/assets/fe428a02-9fc9-4324-b0c7-758bd0aa1320" />
   <img width="200" alt="Settings Theme" src="https://github.com/user-attachments/assets/a08827db-95ba-4408-80a8-a9672776c2dc" />
   <img width="200" alt="Settings Engine" src="https://github.com/user-attachments/assets/ba7b2b76-700e-42e9-9c5d-2e5835c56db2" />
