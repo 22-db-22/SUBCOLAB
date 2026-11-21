@@ -181,7 +181,7 @@ fun PlayerScreen(
     }
 
     // Load offline MP4, smooth live stream (+ optional DASH audio), chunked stream, or local device content:// URI
-    val playbackKey = "${jobState.activePackId.orEmpty()}|${jobState.playableVideoSource.orEmpty()}|${jobState.currentUrl}"
+    val playbackKey = jobState.currentUrl.ifBlank { jobState.activePackId ?: jobState.playableVideoSource.orEmpty() }
     LaunchedEffect(
         playerState.isInitialized,
         playbackKey,
