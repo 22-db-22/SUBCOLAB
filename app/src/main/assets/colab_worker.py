@@ -50,9 +50,11 @@ MODEL_CACHE      = "/content/whisper_models"
 COOKIES_PATH     = "/content/cookies.txt"
 ABORT_PATH       = "/content/subcolab_abort"
 EXPORT_MP4_PATH  = "/content/subcolab_mp4_export.mp4"
-WORKER_PIDFILE   = "/content/subcolab_worker.pid"
-PREFETCH_PIDFILE = "/content/.subcolab_prefetch.pid"
-DEPS_MARKER      = "/content/.subcolab_deps_ok"
+WORKER_PIDFILE     = "/content/subcolab_worker.pid"
+PREFETCH_PIDFILE   = "/content/.subcolab_prefetch.pid"
+PREFETCH_STAGE_FILE = "/content/.subcolab_prefetch_stage"
+PREFETCH_LOG_FILE  = "/content/.subcolab_prefetch.log"
+DEPS_MARKER        = "/content/.subcolab_deps_ok"
 DESKTOP_UA     = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -322,42 +324,154 @@ def _has_preinstalled_cuda_libs():
     return has_cublas, has_cudnn
 
 
-def _wait_for_prefetch_if_running(max_wait_sec: float = 150.0) -> None:
+def _read_prefetch_stage() -> str:
+    try:
+        if os.path.isfile(PREFETCH_STAGE_FILE):
+            return open(PREFETCH_STAGE_FILE, encoding="utf-8").read().strip()
+    except OSError:
+        pass
+    return ""
+
+
+def _cached_model_bytes(model_id: str = "") -> int:
+    total = 0
+    pattern = os.path.join(MODEL_CACHE, f"*{model_id}*") if model_id else os.path.join(MODEL_CACHE, "*")
+    for root_dir in glob.glob(pattern):
+        if not os.path.isdir(root_dir):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(root_dir):
+            for fn in filenames:
+                fp = os.path.join(dirpath, fn)
+                try:
+                    total += os.path.getsize(fp)
+                except OSError:
+                    pass
+    return total
+
+
+def _terminate_prefetch_pid(pid: int) -> None:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            break
+        if sig == signal.SIGTERM:
+            time.sleep(0.4)
+    for p in (PREFETCH_PIDFILE, PREFETCH_STAGE_FILE):
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def _wait_for_prefetch_if_running(wait_for: str = "model", max_wait_sec: float = 165.0) -> bool:
+    """Wait on background Colab pre-fetch with live status updates and stall protection.
+    Returns True if pre-fetch appeared stalled and was aborted (so caller can use standard HTTP fallback).
+    """
     if not os.path.isfile(PREFETCH_PIDFILE):
-        return
+        return False
     try:
         pid = int(open(PREFETCH_PIDFILE, encoding="utf-8").read().strip())
     except Exception:
         pid = -1
     if pid <= 0 or pid == os.getpid():
-        try:
-            os.remove(PREFETCH_PIDFILE)
-        except OSError:
-            pass
-        return
+        for p in (PREFETCH_PIDFILE, PREFETCH_STAGE_FILE):
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError:
+                pass
+        return False
 
-    t_start = time.time()
-    announced = False
-    while (time.time() - t_start) < max_wait_sec:
-        if abort_requested():
-            return
+    def _is_pid_alive() -> bool:
         try:
             os.kill(pid, 0)
+            return True
         except OSError:
+            return False
+
+    stage = _read_prefetch_stage()
+    if wait_for == "packages":
+        if os.path.isfile(DEPS_MARKER) or (stage and stage != "packages"):
+            return False
+    elif wait_for == "model":
+        if stage.startswith("model:") and stage.split(":", 1)[1].strip() != MODEL_ID:
+            status(f"Switching pre-fetch to requested model ({MODEL_ID})...")
+            _terminate_prefetch_pid(pid)
+            return False
+        if _has_cached_model_weights(MODEL_ID):
+            return False
+
+    t_start = time.time()
+    last_progress_at = t_start
+    last_bytes = _cached_model_bytes()
+    last_log_size = os.path.getsize(PREFETCH_LOG_FILE) if os.path.isfile(PREFETCH_LOG_FILE) else 0
+    next_report = 0.0
+    stalled = False
+
+    while (time.time() - t_start) < max_wait_sec:
+        if abort_requested():
+            return False
+        if not _is_pid_alive():
             break
-        if not announced:
-            announced = True
-            status("Waiting for background Colab model pre-fetch to finish...")
+
+        cur_stage = _read_prefetch_stage()
+        if wait_for == "packages":
+            if os.path.isfile(DEPS_MARKER) or (cur_stage and cur_stage != "packages"):
+                return False
+        elif wait_for == "model":
+            if cur_stage.startswith("model:") and cur_stage.split(":", 1)[1].strip() != MODEL_ID:
+                status(f"Switching pre-fetch to requested model ({MODEL_ID})...")
+                _terminate_prefetch_pid(pid)
+                return False
+            if _has_cached_model_weights(MODEL_ID):
+                return False
+
+        now = time.time()
+        cur_bytes = _cached_model_bytes()
+        cur_log_size = os.path.getsize(PREFETCH_LOG_FILE) if os.path.isfile(PREFETCH_LOG_FILE) else 0
+        if cur_bytes > last_bytes + 1024 or cur_log_size > last_log_size:
+            last_bytes = cur_bytes
+            last_log_size = cur_log_size
+            last_progress_at = now
+        elif (now - last_progress_at) >= 45.0:
+            stalled = True
+            status("Background Colab pre-fetch stalled — resuming direct download...")
+            _terminate_prefetch_pid(pid)
+            break
+
+        if now - t_start >= next_report:
+            elapsed = now - t_start
+            mb = cur_bytes / (1024.0 * 1024.0)
+            if wait_for == "packages":
+                status(f"Step 1/4: Finishing faster-whisper package setup in Colab ({elapsed:.0f}s)...")
+            elif mb >= 1.0:
+                status(f"Step 4/4: Downloading/loading faster-whisper {MODEL_ID} via pre-fetch ({elapsed:.0f}s, {mb:.0f} MB cached)...")
+            else:
+                status(f"Step 4/4: Preparing faster-whisper {MODEL_ID} via pre-fetch ({elapsed:.0f}s)...")
+            emit_line("@@SUBCOLAB_HEARTBEAT@@")
+            next_report = elapsed + 8.0
+
         time.sleep(1.0)
 
-    try:
-        os.remove(PREFETCH_PIDFILE)
-    except OSError:
-        pass
+    if not _is_pid_alive():
+        for p in (PREFETCH_PIDFILE, PREFETCH_STAGE_FILE):
+            if os.path.isfile(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+    elif (time.time() - t_start) >= max_wait_sec:
+        stalled = True
+        status("Background Colab pre-fetch timed out — resuming direct download...")
+        _terminate_prefetch_pid(pid)
+
+    return stalled
 
 
 def ensure_packages() -> None:
-    _wait_for_prefetch_if_running()
+    _wait_for_prefetch_if_running(wait_for="packages", max_wait_sec=45.0)
     need_ytdlp = COLAB_CHUNK_STREAM or ((not SKIP_COLAB_YT) and (not STREAMING_QUEUE) and (not os.environ.get("SUBCOLAB_LOCAL_AUDIO", "").strip()))
     status("Step 1/4: Checking Colab Python packages...")
 
@@ -1129,7 +1243,7 @@ def _load_faster_whisper_model(device: str, compute_type: str):
     import importlib.util
     from faster_whisper import WhisperModel
 
-    _wait_for_prefetch_if_running()
+    prefetch_stalled = _wait_for_prefetch_if_running(wait_for="model", max_wait_sec=165.0)
 
     model_store = globals().setdefault("_SUBCOLAB_MODEL_CACHE", {})
     cache_key = (MODEL_ID, device, compute_type)
@@ -1149,9 +1263,11 @@ def _load_faster_whisper_model(device: str, compute_type: str):
             pass
 
     use_local_only = _has_cached_model_weights(MODEL_ID)
-    has_hf_transfer = importlib.util.find_spec("hf_transfer") is not None
+    has_hf_transfer = (not prefetch_stalled) and (importlib.util.find_spec("hf_transfer") is not None)
     if has_hf_transfer:
         os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+    else:
+        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 
     t_load = time.time()
     stop_progress = threading.Event()

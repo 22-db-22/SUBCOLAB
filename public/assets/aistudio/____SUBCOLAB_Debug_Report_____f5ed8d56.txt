@@ -1,0 +1,401 @@
+=== SUBCOLAB Debug Report ===
+Generated: 2026-11-21 09:45:54.440
+Device: motorola moto g52
+Android: 13 (API 33)
+ABIs: arm64-v8a, armeabi-v7a, armeabi
+
+=== Live Debug Logs (350 entries) ===
+[09:22:56.706] I/ColabClient: Prewarm: Confirming Colab T4 GPU allocation (free-tier VMs may take up to 2 min)...
+[09:22:59.581] I/ColabClient: T4 runtime assigned: gpu-t4-s-euw4c1-pidzwmtk8s44 (fresh=true)
+[09:22:59.582] I/ColabClient: Prewarm: T4 GPU allocated — waiting for Jupyter runtime...
+[09:23:00.394] I/ColabClient: Fresh T4 Jupyter readiness check: ready=true endpoint=gpu-t4-s-euw4c1-pidzwmtk8s44
+[09:23:00.397] I/ColabClient: Triggering detached Colab model pre-fetch for large-v3 on gpu-t4-s-euw4c1-pidzwmtk8s44
+[09:23:01.625] I/ColabClient: Jupyter WebSocket opened (kernel=b81ea1d3-634a-4c21-8631-cb285db80406)
+[09:23:02.352] D/ColabClient: Prefetch: SUBCOLAB_PREFETCH_STARTED 694
+[09:23:02.858] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=true)
+[09:23:57.115] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:23:58.868] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-euw)...
+[09:24:05.281] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://youtu.be/RCUVk6CYPiA?si=twGHJs3eIXc974TH lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:24:05.295] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-euw)...
+[09:24:05.337] I/SubcolabFgService: onCreate
+[09:24:19.530] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:24:19.530] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-euw)...
+[09:24:23.147] I/SubcolabCoord: Queued URL job #1 (df9c944c-0): mode=WATCH_NOW url=https://www.youtube.com/watch?v=0mSdKMRlXic model=large-v3
+[09:24:48.834] I/StreamExtractor: Resolved stream (client=default, dur=896s, split=true, mpegts=true, http=206/206)
+[09:24:48.836] I/SubcolabCoord: Live stream ready (default, 25s adaptive audio chunks)
+[09:24:48.845] I/StreamExtractor: Starting adaptive audio-only chunk stream (25s slices, offset=0s, dur=896s, proxyPort=41769)
+[09:24:48.846] I/StreamExtractor: libffmpeg.so LD_LIBRARY_PATH=/data/user/0/com.subcolab.android/no_backup/youtubedl-android/packages/ffmpeg/usr/lib:/data/user/0/com.subcolab.android/no_backup/youtubedl-android/packages/python/usr/lib:/data/user/0/com.subcolab.android/no_backup/youtubedl-android/packages/aria2c/usr/lib:/data/app/~~K6XQ32izQfjpgtHejyMoQw==/com.subcolab.android-IpfSlH0IC6LWHBAMR-PHQg==/lib/arm64
+[09:24:50.140] I/ColabClient: Jupyter WebSocket opened (kernel=b81ea1d3-634a-4c21-8631-cb285db80406)
+[09:24:51.300] I/SubcolabCoord: English title: WetCock_Sisters_be_careful_Taksama_is_confusing_the_sisters_with_his
+[09:24:51.303] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:24:51.393] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:24:51.969] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:24:56.842] I/SubcolabCoord: GPU ready: Tesla T4
+[09:24:56.848] I/SubcolabCoord: Step 4/4: Loading faster-whisper large-v3 (cuda, float16) from local Colab cache...
+[09:25:00.451] I/SubcolabCoord: Step 4/4: Model large-v3 loaded on cuda in 3.6s
+[09:25:00.457] I/SubcolabCoord: Colab Whisper model loaded & ready for streaming chunks
+[09:25:00.458] I/SubcolabCoord: Whisper ready on T4 GPU — waiting for audio chunk...
+[09:25:05.464] I/SubcolabCoord: Translating -> English chunk 1 (00:00:00.000 -> 00:00:25.024)...
+[09:25:05.610] I/SubcolabFgService: onDestroy
+[09:25:05.943] E/ColabClient: Jupyter WebSocket failure: null null
+java.io.EOFException
+	at okio.RealBufferedSource.require(RealBufferedSource.kt:202)
+	at okio.RealBufferedSource.readByte(RealBufferedSource.kt:212)
+	at okhttp3.internal.ws.WebSocketReader.readHeader(WebSocketReader.kt:119)
+	at okhttp3.internal.ws.WebSocketReader.processNextFrame(WebSocketReader.kt:102)
+	at okhttp3.internal.ws.RealWebSocket.loopReader(RealWebSocket.kt:293)
+[09:25:47.152] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:25:47.617] I/ColabClient: Prewarm: Booting fresh Google Colab T4 GPU runtime...
+[09:25:47.617] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:25:47.617] I/ColabClient: Prewarm: Requesting Colab T4 GPU slot...
+[09:25:49.562] I/ColabClient: Prewarm: Confirming Colab T4 GPU allocation (free-tier VMs may take up to 2 min)...
+[09:25:50.314] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://youtu.be/RCUVk6CYPiA?si=UMcYYzzBhGtowQ7Q lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:25:50.320] I/SubcolabFgService: onCreate
+[09:25:53.963] I/ColabClient: T4 runtime assigned: gpu-t4-s-usw1b2-1b5ksubfa0ofi (fresh=true)
+[09:25:53.963] I/ColabClient: Prewarm: T4 GPU allocated — waiting for Jupyter runtime...
+[09:25:54.678] I/ColabClient: Fresh T4 Jupyter readiness check: ready=true endpoint=gpu-t4-s-usw1b2-1b5ksubfa0ofi
+[09:25:54.679] I/ColabClient: Triggering detached Colab model pre-fetch for large-v3 on gpu-t4-s-usw1b2-1b5ksubfa0ofi
+[09:25:54.680] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:25:55.481] I/ColabClient: Jupyter WebSocket opened (kernel=5abdfb0f-281e-458a-8fed-b7cfe0f14e57)
+[09:25:56.456] D/ColabClient: Prefetch: SUBCOLAB_PREFETCH_STARTED 689
+[09:25:56.736] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=true)
+[09:26:00.379] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:26:00.380] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:26:02.208] I/SubcolabCoord: Queued URL job #1 (12d82842-7): mode=WATCH_NOW url=https://www.youtube.com/watch?v=0mSdKMRlXic model=large-v3
+[09:26:27.450] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:26:30.216] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:26:30.620] I/StreamExtractor: Resolved stream (client=default, dur=896s, split=true, mpegts=true, http=206/206)
+[09:26:30.622] I/SubcolabCoord: Live stream ready (default, 25s adaptive audio chunks)
+[09:26:30.625] I/StreamExtractor: Starting adaptive audio-only chunk stream (25s slices, offset=0s, dur=896s, proxyPort=37703)
+[09:26:30.740] I/SubcolabCoord: Queued URL job #2 (423028d4-c): mode=WATCH_NOW url=https://youtu.be/cgEiZgWKmXo?si=K5modvTg5f7lNshD model=large-v3
+[09:26:32.240] I/ColabClient: Jupyter WebSocket opened (kernel=5abdfb0f-281e-458a-8fed-b7cfe0f14e57)
+[09:26:34.190] I/SubcolabCoord: English title: WetCock_Sisters_be_careful_Taksama_is_confusing_the_sisters_with_his
+[09:26:34.203] I/SubcolabCoord: Waiting for background Colab model pre-fetch to finish...
+[09:28:21.647] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=false)
+[09:28:21.682] I/SubcolabCoord: Starting next queued URL job (12d82842-7): mode=WATCH_NOW url=https://www.youtube.com/watch?v=0mSdKMRlXic
+[09:28:23.365] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:28:49.152] W/StreamExtractor: resolveStreamInfo(default, ipv4=true, ua=false) failed: null
+[09:28:49.479] I/SubcolabCoord: Starting next queued URL job (423028d4-c): mode=WATCH_NOW url=https://youtu.be/cgEiZgWKmXo?si=K5modvTg5f7lNshD
+[09:28:49.886] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:28:50.306] W/StreamExtractor: resolveStreamInfo(default, ipv4=true, ua=false) failed: null
+[09:28:57.173] I/SubcolabFgService: onDestroy
+[09:29:05.950] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:29:06.478] I/ColabClient: Prewarm: Booting fresh Google Colab T4 GPU runtime...
+[09:29:06.479] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:29:06.479] I/ColabClient: Prewarm: Requesting Colab T4 GPU slot...
+[09:29:07.616] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://youtu.be/cgEiZgWKmXo?si=-qk3y6y-fxx1rHJU lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:29:07.621] I/SubcolabFgService: onCreate
+[09:29:08.526] I/ColabClient: Prewarm: Confirming Colab T4 GPU allocation (free-tier VMs may take up to 2 min)...
+[09:29:12.835] I/ColabClient: Adopted T4 runtime gpu-t4-s-ass1c3-2ixkk9hy0d4nk via /assignments watcher
+[09:29:12.836] I/ColabClient: T4 runtime assigned: gpu-t4-s-ass1c3-2ixkk9hy0d4nk (fresh=true)
+[09:29:12.836] I/ColabClient: Prewarm: T4 GPU allocated — waiting for Jupyter runtime...
+[09:29:13.673] I/ColabClient: Fresh T4 Jupyter readiness check: ready=true endpoint=gpu-t4-s-ass1c3-2ixkk9hy0d4nk
+[09:29:13.674] I/ColabClient: Triggering detached Colab model pre-fetch for large-v3 on gpu-t4-s-ass1c3-2ixkk9hy0d4nk
+[09:29:13.674] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-ass)...
+[09:29:14.253] I/ColabClient: Jupyter WebSocket opened (kernel=108495d4-dc4e-4760-9fec-4845a8a3699f)
+[09:29:15.538] D/ColabClient: Prefetch: SUBCOLAB_PREFETCH_STARTED 898
+[09:29:15.615] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=true)
+[09:29:46.722] I/StreamExtractor: Resolved stream (client=default, dur=828s, split=true, mpegts=true, http=206/206)
+[09:29:46.725] I/SubcolabCoord: Live stream ready (default, 25s adaptive audio chunks)
+[09:29:46.731] I/StreamExtractor: Starting adaptive audio-only chunk stream (25s slices, offset=0s, dur=828s, proxyPort=37661)
+[09:30:01.787] E/SubcolabCoord: Pipeline failed
+java.net.SocketTimeoutException: timeout
+	at okio.SocketAsyncTimeout.newTimeoutException(JvmOkio.kt:146)
+	at okio.AsyncTimeout.access$newTimeoutException(AsyncTimeout.kt:161)
+	at okio.AsyncTimeout$source$1.read(AsyncTimeout.kt:339)
+	at okio.RealBufferedSource.indexOf(RealBufferedSource.kt:430)
+	at okio.RealBufferedSource.readUtf8LineStrict(RealBufferedSource.kt:323)
+[09:30:30.697] I/SubcolabFgService: onDestroy
+[09:30:51.800] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:30:52.259] I/ColabClient: Prewarm: Booting fresh Google Colab T4 GPU runtime...
+[09:30:52.259] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:30:52.259] I/ColabClient: Prewarm: Requesting Colab T4 GPU slot...
+[09:30:52.781] I/ColabClient: Prewarm: Confirming Colab T4 GPU allocation (free-tier VMs may take up to 2 min)...
+[09:30:53.917] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://youtu.be/cgEiZgWKmXo?si=32Oiey5hUhkYUwcV lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:30:53.926] I/SubcolabFgService: onCreate
+[09:30:56.978] I/ColabClient: T4 runtime assigned: gpu-t4-s-usw4b1-y0jvrelqb91b (fresh=true)
+[09:30:56.978] I/ColabClient: Prewarm: T4 GPU allocated — waiting for Jupyter runtime...
+[09:30:58.408] I/ColabClient: Fresh T4 Jupyter readiness check: ready=true endpoint=gpu-t4-s-usw4b1-y0jvrelqb91b
+[09:30:58.409] I/ColabClient: Triggering detached Colab model pre-fetch for large-v3 on gpu-t4-s-usw4b1-y0jvrelqb91b
+[09:30:58.409] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:30:59.902] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:31:00.811] D/ColabClient: Prefetch: SUBCOLAB_PREFETCH_STARTED 1105
+[09:31:01.073] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=true)
+[09:31:31.424] I/StreamExtractor: Resolved stream (client=default, dur=828s, split=true, mpegts=true, http=206/206)
+[09:31:31.427] I/SubcolabCoord: Live stream ready (default, 25s adaptive audio chunks)
+[09:31:31.433] I/StreamExtractor: Starting adaptive audio-only chunk stream (25s slices, offset=0s, dur=828s, proxyPort=41343)
+[09:31:33.941] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:31:36.267] I/SubcolabCoord: English title: Son_Seok_hee_s_12_O_Clock_Diplomatic_temperature_difference_between
+[09:31:36.273] I/SubcolabCoord: Waiting for background Colab model pre-fetch to finish...
+[09:33:35.594] E/ColabClient: Jupyter WebSocket failure: null null
+java.io.EOFException
+	at okio.RealBufferedSource.require(RealBufferedSource.kt:202)
+	at okio.RealBufferedSource.readByte(RealBufferedSource.kt:212)
+	at okhttp3.internal.ws.WebSocketReader.readHeader(WebSocketReader.kt:119)
+	at okhttp3.internal.ws.WebSocketReader.processNextFrame(WebSocketReader.kt:102)
+	at okhttp3.internal.ws.RealWebSocket.loopReader(RealWebSocket.kt:293)
+[09:33:44.976] I/SubcolabCoord: Starting local device video subtitle job: uri=content://com.android.providers.media.documents/document/video%3A1000000099 lang=auto
+[09:34:22.419] I/LocalAudioExtractor: Compressed local audio via libffmpeg.so (4948 KB)
+[09:34:30.581] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:34:31.814] I/SubcolabCoord: English title: Jaehoon_oppa_is_basically_GZ_Jewelry_has_appeared_to_catch_Singles_for
+[09:34:31.820] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:34:31.824] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:34:31.826] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:34:31.829] I/SubcolabCoord: GPU ready: Tesla T4
+[09:34:31.832] I/SubcolabCoord: Using audio relayed/extracted from device...
+[09:34:31.835] I/SubcolabCoord: Converting & syncing audio to 16 kHz mono WAV...
+[09:34:33.654] I/SubcolabCoord: Audio ready in 1.8s
+[09:34:33.660] I/SubcolabCoord: Step 4/4: Reusing warm large-v3 model already in VRAM (0.0s)
+[09:34:33.854] I/SubcolabCoord: Translating speech -> English (lang=auto, beam=5, 36 chunk(s))...
+[09:34:33.860] I/SubcolabCoord: Translating -> English chunk 1/36 (00:00:00.000 -> 00:00:21.375)...
+[09:34:35.191] I/SubcolabCoord: Detected language: ko (100%) | Duration: 27.4 min
+[09:34:36.336] I/SubcolabCoord: Translating -> English chunk 2/36 (00:00:21.375 -> 00:01:10.250)...
+[09:34:45.883] I/SubcolabCoord: Translating -> English chunk 3/36 (00:01:10.250 -> 00:01:51.425)...
+[09:34:47.823] I/SubcolabCoord: Translating -> English chunk 4/36 (00:01:51.425 -> 00:02:34.650)...
+[09:34:53.550] I/SubcolabCoord: Translating -> English chunk 5/36 (00:02:34.650 -> 00:03:19.925)...
+[09:35:05.803] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=false)
+[09:35:14.019] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:35:15.131] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:35:15.403] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://www.youtube.com/watch?v=NYqGGHpDWz0 lang=auto model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:35:15.413] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:35:54.858] I/StreamExtractor: Resolved stream (client=default, dur=2717s, split=true, mpegts=true, http=206/206)
+[09:35:54.861] I/SubcolabCoord: Live stream ready (default, 60s adaptive audio chunks)
+[09:35:54.867] I/StreamExtractor: Starting adaptive audio-only chunk stream (60s slices, offset=0s, dur=2717s, proxyPort=42531)
+[09:35:55.887] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:35:57.973] I/SubcolabCoord: English title: Lee_Jeong_min_s_political_news_Huge_revelation_suspicion_of
+[09:35:57.980] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:35:57.985] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:35:57.988] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:35:57.993] I/SubcolabCoord: GPU ready: Tesla T4
+[09:35:57.997] I/SubcolabCoord: Step 4/4: Reusing warm large-v3 model already in VRAM (0.0s)
+[09:35:58.000] I/SubcolabCoord: Colab Whisper model loaded & ready for streaming chunks
+[09:35:58.000] I/SubcolabCoord: Whisper ready on T4 GPU — waiting for audio chunk...
+[09:36:28.018] I/SubcolabCoord: Translating -> English chunk 1 (1/2) (00:00:00.000 -> 00:00:23.775)...
+[09:36:28.470] I/SubcolabCoord: Detected language: ko (98%) | Duration: 45.3 min
+[09:36:30.261] I/SubcolabCoord: Translating -> English chunk 1 (2/2) (00:00:23.775 -> 00:01:00.032)...
+[09:36:30.364] I/MpvPlayerController: Prepared private mpv font from Roboto-Regular.ttf (2372548 bytes)
+[09:36:30.455] I/MpvPlayerController: libmpv initialized successfully (fontDir=/data/user/0/com.subcolab.android/files/mpv_fonts)
+[09:36:30.480] I/MpvPlayerController: Surface attached (1080x2400)
+[09:36:30.493] I/MpvPlayerController: Opening local media: http://127.0.0.1:42531/proxy?u=https%3A%2F%2Frr3---sn-ci5gup-qxale.googlevideo.c
+[09:36:30.512] I/MpvPlayerController: MPV_EVENT_START_FILE received
+[09:36:30.802] E/MpvPlayerController: mpv[ffmpeg/video]: h264_mediacodec: Both surface and native_window are NULL
+[09:36:30.890] I/MpvPlayerController: MPV_EVENT_FILE_LOADED received (chunkIdx=-1)
+[09:36:31.274] I/MpvPlayerController: Attached separate live DASH audio stream
+[09:36:31.274] I/MpvPlayerController: sub-add /data/user/0/com.subcolab.android/files/live.srt (mode=en)
+[09:36:31.583] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:32.407] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:40.180] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:44.187] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:47.255] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:51.049] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:55.536] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:36:58.147] I/SubcolabCoord: Translating -> English chunk 2 (1/2) (00:01:00.032 -> 00:01:20.357)...
+[09:36:58.949] I/MpvPlayerController: Releasing libmpv controller (wasCreated=true, isActive=true)
+[09:37:00.105] I/SubcolabCoord: Translating -> English chunk 2 (2/2) (00:01:20.357 -> 00:02:00.000)...
+[09:37:07.907] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:37:08.186] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:37:09.442] I/SubcolabCoord: Queued URL job #1 (d7cab184-0): mode=WATCH_NOW url=https://youtu.be/xKSdGbMHQ70?si=wNDmG-gcke_LYhOe model=large-v3
+[09:37:18.656] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:37:18.656] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:37:20.701] I/SubcolabCoord: Queued URL job #2 (c1bcc08e-2): mode=WATCH_NOW url=https://youtu.be/YV89EbnE27g?si=p0Ar-fRFedQZJ8RC model=large-v3
+[09:37:27.553] I/SubcolabCoord: Translating -> English chunk 3 (1/2) (00:02:00.000 -> 00:02:24.325)...
+[09:37:27.841] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=false)
+[09:37:27.872] I/SubcolabCoord: Starting next queued URL job (d7cab184-0): mode=WATCH_NOW url=https://youtu.be/xKSdGbMHQ70?si=wNDmG-gcke_LYhOe
+[09:37:27.879] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:38:07.167] I/StreamExtractor: Resolved stream (client=default, dur=1701s, split=true, mpegts=true, http=206/206)
+[09:38:07.170] I/SubcolabCoord: Live stream ready (default, 40s adaptive audio chunks)
+[09:38:07.176] I/StreamExtractor: Starting adaptive audio-only chunk stream (40s slices, offset=0s, dur=1701s, proxyPort=42497)
+[09:38:08.005] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:38:09.208] I/SubcolabCoord: English title: Breaking_News_Jensen_Huang_resigns_as_Nvidia_CEO_Jeong_Ok_im_Jensen
+[09:38:09.213] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:38:09.217] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:38:09.220] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:38:09.223] I/SubcolabCoord: GPU ready: Tesla T4
+[09:38:09.228] I/SubcolabCoord: Step 4/4: Reusing warm large-v3 model already in VRAM (0.0s)
+[09:38:09.232] I/SubcolabCoord: Colab Whisper model loaded & ready for streaming chunks
+[09:38:09.233] I/SubcolabCoord: Whisper ready on T4 GPU — waiting for audio chunk...
+[09:38:29.782] I/SubcolabCoord: Translating -> English chunk 1 (1/2) (00:00:00.000 -> 00:00:22.675)...
+[09:38:30.255] I/SubcolabCoord: Detected language: ko (100%) | Duration: 28.4 min
+[09:38:32.993] I/SubcolabCoord: Translating -> English chunk 1 (2/2) (00:00:22.675 -> 00:00:40.000)...
+[09:38:37.400] I/SubcolabCoord: Switched player to live active queued job d7cab184-0 (Breaking_News_Jensen_Huang_resigns_as_Nvidia_CEO_Jeong_Ok_im_Jensen)
+[09:38:37.443] I/MpvPlayerController: libmpv initialized successfully (fontDir=/data/user/0/com.subcolab.android/files/mpv_fonts)
+[09:38:37.465] I/MpvPlayerController: Surface attached (1080x2400)
+[09:38:37.476] I/MpvPlayerController: Opening local media: http://127.0.0.1:42497/proxy?u=https%3A%2F%2Frr1---sn-ci5gup-qxay.googlevideo.co
+[09:38:37.501] I/MpvPlayerController: MPV_EVENT_START_FILE received
+[09:38:37.599] E/MpvPlayerController: mpv[ffmpeg/video]: h264_mediacodec: Both surface and native_window are NULL
+[09:38:37.672] I/MpvPlayerController: MPV_EVENT_FILE_LOADED received (chunkIdx=-1)
+[09:38:38.038] I/MpvPlayerController: Attached separate live DASH audio stream
+[09:38:38.038] I/MpvPlayerController: sub-add /data/user/0/com.subcolab.android/files/live.srt (mode=en)
+[09:38:38.118] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:38:38.481] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:38:41.382] I/MpvPlayerController: Releasing libmpv controller (wasCreated=true, isActive=true)
+[09:38:46.086] E/ColabClient: Jupyter WebSocket failure: null null
+java.io.EOFException
+	at okio.RealBufferedSource.require(RealBufferedSource.kt:202)
+	at okio.RealBufferedSource.readByte(RealBufferedSource.kt:212)
+	at okhttp3.internal.ws.WebSocketReader.readHeader(WebSocketReader.kt:119)
+	at okhttp3.internal.ws.WebSocketReader.processNextFrame(WebSocketReader.kt:102)
+	at okhttp3.internal.ws.RealWebSocket.loopReader(RealWebSocket.kt:293)
+[09:38:46.124] I/SubcolabCoord: Starting next queued URL job (c1bcc08e-2): mode=WATCH_NOW url=https://youtu.be/YV89EbnE27g?si=p0Ar-fRFedQZJ8RC
+[09:38:46.402] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:39:27.347] I/StreamExtractor: Resolved stream (client=default, dur=1539s, split=true, mpegts=true, http=206/206)
+[09:39:27.350] I/SubcolabCoord: Live stream ready (default, 40s adaptive audio chunks)
+[09:39:27.356] I/StreamExtractor: Starting adaptive audio-only chunk stream (40s slices, offset=0s, dur=1539s, proxyPort=38669)
+[09:39:29.250] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:39:31.310] I/SubcolabCoord: English title: US_Democratic_Party_takes_aim_at_Trump_behind_Jensen_Huang_Dr_Dae_ho_Kim
+[09:39:31.315] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:39:31.319] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:39:31.322] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:39:31.325] I/SubcolabCoord: GPU ready: Tesla T4
+[09:39:31.328] I/SubcolabCoord: Step 4/4: Reusing warm large-v3 model already in VRAM (0.0s)
+[09:39:31.330] I/SubcolabCoord: Colab Whisper model loaded & ready for streaming chunks
+[09:39:31.331] I/SubcolabCoord: Whisper ready on T4 GPU — waiting for audio chunk...
+[09:39:51.090] I/SubcolabCoord: Translating -> English chunk 1 (1/2) (00:00:00.000 -> 00:00:24.475)...
+[09:39:51.187] I/SubcolabCoord: Detected language: ko (100%) | Duration: 25.6 min
+[09:39:52.782] I/SubcolabCoord: Translating -> English chunk 1 (2/2) (00:00:24.475 -> 00:00:40.000)...
+[09:40:04.160] I/ColabClient: Jupyter WebSocket closed (1000 , sawIdle=false)
+[09:40:05.873] I/SubcolabCoord: Cancelling queued ready offer c1bcc08e-2 (already finished or background)
+[09:40:46.607] I/SubcolabCoord: Starting background video re-download: pack=US_Democratic_Party_takes_aim_at_Trump res=720p
+[09:40:46.626] I/StreamExtractor: Starting MP4 download client=default maxH=720 ipv4=true ua=false
+[09:40:58.027] W/StreamExtractor: MP4 download (default, ipv4=true, ua=false) failed: null
+[09:40:58.027] I/StreamExtractor: Starting MP4 download client=mweb maxH=720 ipv4=true ua=false
+[09:40:58.906] I/SubcolabCoord: Permanently deleting pack US_Democratic_Party_takes_aim_at_Trump (ea829f50-412)
+[09:41:04.878] I/SubcolabCoord: Starting background subtitle job: pack=Breaking_News_Jensen_Huang_resigns_as lang=auto model=large-v3 clean=false vocal=false beam=5
+[09:41:35.664] W/StreamExtractor: Audio relay (default, sel=bestaudio[ext=m4a]) failed: null
+[09:41:35.717] W/StreamExtractor: MP4 download (mweb, ipv4=true, ua=false) failed: null
+[09:41:35.720] I/StreamExtractor: Starting MP4 download client=android_vr maxH=720 ipv4=true ua=false
+[09:41:36.411] I/SubcolabCoord: Permanently deleting pack Breaking_News_Jensen_Huang_resigns_as (6cf87ad3-6cf)
+[09:41:38.000] I/SubcolabCoord: Permanently deleting pack Lee_Jeong_min_s_political_news_Huge (1cbd5716-212)
+[09:41:39.358] I/SubcolabCoord: Permanently deleting pack Jaehoon_oppa_is_basically_GZ_Jewelry (10f76834-4ae)
+[09:41:41.227] I/SubcolabCoord: Permanently deleting pack Son_Seok_hee_s_12_O_Clock_Diplomatic (083aaea5-9ad)
+[09:41:41.797] I/SubcolabCoord: Permanently deleting pack SUBCOLAB_Video_53cd (53cdc5e1-83d)
+[09:41:42.910] I/SubcolabCoord: Permanently deleting pack SUBCOLAB_Video_71ab (71abba1e-87c)
+[09:41:43.464] I/SubcolabCoord: Permanently deleting pack WetCock_Sisters_be_careful_Taksama_is (2b3f2d9a-4fb)
+[09:41:43.549] W/StreamExtractor: MP4 download (android_vr, ipv4=true, ua=false) failed: ERROR: unable to download video data: HTTP Error 403: Forbidden
+
+[09:41:43.550] I/StreamExtractor: Starting MP4 download client=default maxH=720 ipv4=true ua=false
+[09:42:00.833] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:42:01.150] I/ColabClient: Prewarm: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:42:04.200] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://share.google/JROs0LXJiaWAJvSyT lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:42:04.210] I/SubcolabCoord: Reusing warm Colab T4 GPU runtime (gpu-t4-s-usw)...
+[09:42:13.582] W/StreamExtractor: Audio relay (mweb, sel=bestaudio[ext=m4a]) failed: ERROR: [youtube] xKSdGbMHQ70: Requested format is not available. Use --list-formats for a list of available formats
+
+[09:42:16.247] I/StreamExtractor: Resolved stream (client=default, dur=2706s, split=false, mpegts=true, http=200/200)
+[09:42:16.248] I/SubcolabCoord: Live stream ready (default, 60s adaptive audio chunks)
+[09:42:16.255] I/StreamExtractor: Starting adaptive audio-only chunk stream (60s slices, offset=0s, dur=2706s, proxyPort=39093)
+[09:42:17.042] I/ColabClient: Jupyter WebSocket opened (kernel=3c292165-2ead-4f36-9d83-4eb9af1dbb0d)
+[09:42:17.751] I/SubcolabCoord: English title: SNSD_The_Beatles_Code_2_Full_Eng_Sub
+[09:42:17.762] I/SubcolabCoord: Step 1/4: Checking Colab Python packages...
+[09:42:17.769] I/SubcolabCoord: Step 1/4: Colab packages ready.
+[09:42:17.776] I/SubcolabCoord: Step 2/4: CUDA libs preloaded (cuBLAS=True, cuDNN9=True)
+[09:42:17.781] I/SubcolabCoord: GPU ready: Tesla T4
+[09:42:17.786] I/SubcolabCoord: Step 4/4: Reusing warm large-v3 model already in VRAM (0.0s)
+[09:42:17.791] I/SubcolabCoord: Colab Whisper model loaded & ready for streaming chunks
+[09:42:17.793] I/SubcolabCoord: Whisper ready on T4 GPU — waiting for audio chunk...
+[09:42:21.283] W/StreamExtractor: Audio relay (android_vr, sel=bestaudio[ext=m4a]) failed: ERROR: [youtube] xKSdGbMHQ70: Requested format is not available. Use --list-formats for a list of available formats
+
+[09:42:24.034] I/SubcolabCoord: Translating -> English chunk 1 (1/2) (00:00:00.000 -> 00:00:18.375)...
+[09:42:24.105] I/SubcolabCoord: Detected language: ko (100%) | Duration: 45.1 min
+[09:42:25.635] I/SubcolabCoord: Translating -> English chunk 1 (2/2) (00:00:18.375 -> 00:01:00.032)...
+[09:42:25.659] I/MpvPlayerController: libmpv initialized successfully (fontDir=/data/user/0/com.subcolab.android/files/mpv_fonts)
+[09:42:25.687] I/MpvPlayerController: Surface attached (1080x2400)
+[09:42:25.697] I/MpvPlayerController: Opening local media: http://127.0.0.1:39093/proxy?u=https%3A%2F%2Fvod3.cf.dmcdn.net%2Fsec2%28-z-Kl8o-
+[09:42:25.720] I/MpvPlayerController: MPV_EVENT_START_FILE received
+[09:42:28.086] I/SubcolabCoord: Translating -> English chunk 2 (1/2) (00:01:00.032 -> 00:01:18.407)...
+[09:42:28.834] E/MpvPlayerController: mpv[ffmpeg/video]: h264_mediacodec: Both surface and native_window are NULL
+[09:42:28.890] I/MpvPlayerController: MPV_EVENT_FILE_LOADED received (chunkIdx=-1)
+[09:42:29.071] I/MpvPlayerController: sub-add /data/user/0/com.subcolab.android/files/live.srt (mode=en)
+[09:42:29.122] W/MpvPlayerController: mpv[cplayer]: Audio device underrun detected.
+[09:42:30.124] I/SubcolabCoord: Translating -> English chunk 2 (2/2) (00:01:18.407 -> 00:02:00.000)...
+[09:42:32.684] I/SubcolabCoord: Translating -> English chunk 3 (1/2) (00:02:00.000 -> 00:02:14.675)...
+[09:42:34.317] I/SubcolabCoord: Translating -> English chunk 3 (2/2) (00:02:14.675 -> 00:03:00.032)...
+[09:42:38.009] I/SubcolabCoord: Translating -> English chunk 4 (1/2) (00:03:00.032 -> 00:03:23.307)...
+[09:42:38.935] I/MpvPlayerController: Releasing libmpv controller (wasCreated=true, isActive=true)
+[09:42:39.381] I/SubcolabCoord: Translating -> English chunk 4 (2/2) (00:03:23.307 -> 00:04:00.000)...
+[09:42:40.966] W/StreamExtractor: Audio relay (default, sel=18/best[vcodec!=no) failed: null
+[09:42:41.013] W/StreamExtractor: MP4 download (default, ipv4=true, ua=false) failed: null
+[09:42:41.025] I/StreamExtractor: Starting MP4 download client=mweb maxH=720 ipv4=true ua=false
+[09:42:41.259] E/ColabClient: Jupyter WebSocket failure: null null
+java.io.EOFException
+	at okio.RealBufferedSource.require(RealBufferedSource.kt:202)
+	at okio.RealBufferedSource.readByte(RealBufferedSource.kt:212)
+	at okhttp3.internal.ws.WebSocketReader.readHeader(WebSocketReader.kt:119)
+	at okhttp3.internal.ws.WebSocketReader.processNextFrame(WebSocketReader.kt:102)
+	at okhttp3.internal.ws.RealWebSocket.loopReader(RealWebSocket.kt:293)
+[09:42:48.337] W/StreamExtractor: Audio relay (mweb, sel=18/best[vcodec!=no) failed: null
+[09:42:48.387] W/StreamExtractor: MP4 download (mweb, ipv4=true, ua=false) failed: null
+[09:42:48.387] I/StreamExtractor: Starting MP4 download client=android_vr maxH=720 ipv4=true ua=false
+[09:42:48.389] I/SubcolabFgService: onDestroy
+[09:42:55.801] W/StreamExtractor: Audio relay (android_vr, sel=18/best[vcodec!=no) failed: ERROR: unable to download video data: HTTP Error 403: Forbidden
+
+[09:42:55.801] I/SubcolabCoord: Ignoring failure from superseded job #24 (YoutubeDLException: ERROR: unable to download video data: HTTP Error 403: Forbidden
+)
+[09:42:56.076] W/StreamExtractor: MP4 download (android_vr, ipv4=true, ua=false) failed: ERROR: unable to download video data: HTTP Error 403: Forbidden
+
+[09:42:56.077] I/StreamExtractor: Starting MP4 download client=default maxH=720 ipv4=false ua=false
+[09:43:10.539] W/StreamExtractor: MP4 download (default, ipv4=false, ua=false) failed: ERROR: [youtube] YV89EbnE27g: Unable to download API page: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+
+[09:43:10.539] I/SubcolabCoord: Ignoring failure from superseded job #22 (YoutubeDLException: ERROR: [youtube] YV89EbnE27g: Unable to download API page: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+)
+[09:43:20.118] I/SubcolabCoord: Permanently deleting pack SNSD_The_Beatles_Code_2_Full_Eng_Sub (9d9efdae-6c8)
+[09:43:37.598] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:43:37.605] I/ColabClient: Prewarm: Booting fresh Google Colab T4 GPU runtime...
+[09:43:37.606] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:43:37.606] I/ColabClient: Prewarm: Requesting Colab T4 GPU slot...
+[09:43:37.608] W/ColabClient: T4 allocation attempt 1 failed for nbh=e5953ab8_6e5 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:43:37.608] I/ColabClient: Prewarm: Colab T4 allocation delayed — waiting 6s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:43:43.617] I/ColabClient: Prewarm: Checking Colab T4 GPU allocation status (retry 1/2)...
+[09:43:43.621] W/ColabClient: T4 allocation attempt 2 failed for nbh=e5953ab8_6e5 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:43:43.622] I/ColabClient: Prewarm: Colab T4 allocation delayed — waiting 12s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:43:43.678] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://www.dailymotion.com/video/x2rk07y lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:43:43.685] I/SubcolabFgService: onCreate
+[09:43:48.231] W/StreamExtractor: resolveStreamInfo(default, ipv4=true, ua=false) failed: ERROR: [dailymotion] x2rk07y: Unable to download JSON metadata: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+
+[09:43:52.729] W/StreamExtractor: resolveStreamInfo(default, ipv4=false, ua=true) failed: ERROR: [dailymotion] x2rk07y: Unable to download JSON metadata: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+
+[09:43:55.625] I/ColabClient: Prewarm: Checking Colab T4 GPU allocation status (retry 2/2)...
+[09:43:55.626] W/ColabClient: T4 allocation attempt 3 failed for nbh=e5953ab8_6e5 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:43:55.627] W/SubcolabApp: Background T4 pre-warm skipped (share_overlay): Unable to resolve host "colab.research.google.com": No address associated with hostname
+[09:43:55.629] I/SubcolabCoord: Booting fresh Google Colab T4 GPU runtime...
+[09:43:55.629] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:43:55.630] I/SubcolabCoord: Requesting Colab T4 GPU slot...
+[09:43:55.632] W/ColabClient: T4 allocation attempt 1 failed for nbh=f388b4ba_662 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:43:55.633] I/SubcolabCoord: Colab T4 allocation delayed — waiting 6s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:43:57.168] I/SubcolabCoord: Starting Colab chunked relay (45s smoother chunks + parallel Whisper)...
+[09:44:01.640] I/SubcolabCoord: Checking Colab T4 GPU allocation status (retry 1/2)...
+[09:44:01.643] W/ColabClient: T4 allocation attempt 2 failed for nbh=f388b4ba_662 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:01.644] I/SubcolabCoord: Colab T4 allocation delayed — waiting 12s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:44:13.652] I/SubcolabCoord: Checking Colab T4 GPU allocation status (retry 2/2)...
+[09:44:13.656] W/ColabClient: T4 allocation attempt 3 failed for nbh=f388b4ba_662 (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:13.658] E/SubcolabCoord: Pipeline failed
+
+[09:44:29.821] I/SubcolabApp: Background Colab T4 pre-warm requested (share_overlay)
+[09:44:29.830] I/ColabClient: Prewarm: Booting fresh Google Colab T4 GPU runtime...
+[09:44:29.831] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:44:29.831] I/ColabClient: Prewarm: Requesting Colab T4 GPU slot...
+[09:44:29.832] W/ColabClient: T4 allocation attempt 1 failed for nbh=68e13b7a_d1c (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:29.833] I/ColabClient: Prewarm: Colab T4 allocation delayed — waiting 6s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:44:31.217] I/SubcolabCoord: Starting URL job: mode=WATCH_NOW url=https://www.dailymotion.com/video/x16sadz lang=ko model=large-v3 externalShare=true reuse=false resumeSec=0.0
+[09:44:35.751] W/StreamExtractor: resolveStreamInfo(default, ipv4=true, ua=false) failed: ERROR: [dailymotion] x16sadz: Unable to download JSON metadata: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+
+[09:44:35.836] I/ColabClient: Prewarm: Checking Colab T4 GPU allocation status (retry 1/2)...
+[09:44:35.837] W/ColabClient: T4 allocation attempt 2 failed for nbh=68e13b7a_d1c (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:35.838] I/ColabClient: Prewarm: Colab T4 allocation delayed — waiting 12s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:44:40.221] W/StreamExtractor: resolveStreamInfo(default, ipv4=false, ua=true) failed: ERROR: [dailymotion] x16sadz: Unable to download JSON metadata: [Errno 7] No address associated with hostname (caused by TransportError('[Errno 7] No address associated with hostname'))
+
+[09:44:44.679] I/SubcolabCoord: Starting Colab chunked relay (45s smoother chunks + parallel Whisper)...
+[09:44:47.846] I/ColabClient: Prewarm: Checking Colab T4 GPU allocation status (retry 2/2)...
+[09:44:47.849] W/ColabClient: T4 allocation attempt 3 failed for nbh=68e13b7a_d1c (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:47.850] W/SubcolabApp: Background T4 pre-warm skipped (share_overlay): Unable to resolve host "colab.research.google.com": No address associated with hostname
+[09:44:47.855] I/SubcolabCoord: Booting fresh Google Colab T4 GPU runtime...
+[09:44:47.856] I/ColabClient: Allocating fresh Colab T4 GPU runtime
+[09:44:47.856] I/SubcolabCoord: Requesting Colab T4 GPU slot...
+[09:44:47.858] W/ColabClient: T4 allocation attempt 1 failed for nbh=654cb644_dbf (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:47.859] I/SubcolabCoord: Colab T4 allocation delayed — waiting 6s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:44:53.868] I/SubcolabCoord: Checking Colab T4 GPU allocation status (retry 1/2)...
+[09:44:53.870] W/ColabClient: T4 allocation attempt 2 failed for nbh=654cb644_dbf (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:44:53.871] I/SubcolabCoord: Colab T4 allocation delayed — waiting 12s to recover VM (Unable to resolve host "colab.research.google.com": No address associated with hostname)...
+[09:45:05.877] I/SubcolabCoord: Checking Colab T4 GPU allocation status (retry 2/2)...
+[09:45:05.880] W/ColabClient: T4 allocation attempt 3 failed for nbh=654cb644_dbf (retryable=true) (UnknownHostException: Unable to resolve host "colab.research.google.com": No address associated with hostname)
+[09:45:05.882] E/SubcolabCoord: Pipeline failed
+

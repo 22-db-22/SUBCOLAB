@@ -380,10 +380,10 @@ data class JobProgressState(
 
 @Serializable
 enum class ThemeMode(val label: String) {
+    SYSTEM("System"),
     SOFT_DARK("Soft Dark"),
     LIGHT("Light"),
     DARK("Dark"),
-    SYSTEM("System"),
 }
 
 @Serializable
@@ -400,6 +400,6 @@ data class AppSettings(
     val subtitleDelaySec: Float = 0f,
     val subtitleBorderSize: Int = 3,
     val subtitleBoxEnabled: Boolean = false,
-    val themeMode: ThemeMode = ThemeMode.SOFT_DARK,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val quickTipsDismissed: Boolean = false,
 )

@@ -155,7 +155,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 0. Appearance / Theme Mode Selector (Soft Dark / Light / Dark / System)
+            // 0. Appearance / Theme Mode Selector (System / Soft Dark / Light / Dark)
             Card(
                 colors = CardDefaults.cardColors(containerColor = SubcolabColors.SurfaceDark),
                 border = BorderStroke(1.dp, SubcolabColors.BorderSubtle),
@@ -175,7 +175,7 @@ fun SettingsScreen(
                         Column {
                             Text("Appearance", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Choose Soft Dark (default), Light, Dark, or System mode (player stays cinema-black).",
+                                text = "Choose System (default), Soft Dark, Light, or Dark mode (player stays cinema-black).",
                                 color = SubcolabColors.TextSecondary,
                                 fontSize = 12.sp,
                             )

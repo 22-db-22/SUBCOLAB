@@ -106,7 +106,7 @@ class SharePromptActivity : ComponentActivity() {
                     )
                 } else if (showWatchNowNotice) {
                     LaunchedEffect(Unit) {
-                        delay(3_200L)
+                        delay(2_000L)
                         finish()
                     }
                     WatchNowStartedNotice(onDismiss = { finish() })
